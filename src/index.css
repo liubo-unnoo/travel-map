@@ -1,0 +1,143 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: #0f172a;
+  color: #f1f5f9;
+}
+
+/* MapLibre tooltip 样式 */
+.map-tooltip .maplibregl-popup-content {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.map-tooltip .maplibregl-popup-tip {
+  display: none;
+}
+
+.tooltip-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tooltip-name {
+  font-size: 13px;
+  color: #f1f5f9;
+  font-weight: 500;
+}
+
+.tooltip-badge {
+  font-size: 11px;
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 2px;
+}
+
+/* GlowButton */
+.glow-btn {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 229, 255, 0.5);
+  background: linear-gradient(135deg, rgba(0,180,255,0.2), rgba(0,100,180,0.2));
+  color: #e0f7ff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: 0 0 10px rgba(0,229,255,0.15);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+.glow-btn:hover {
+  border-color: rgba(0, 229, 255, 0.85);
+  background: linear-gradient(135deg, rgba(0,180,255,0.35), rgba(0,100,180,0.35));
+  box-shadow: 0 0 18px rgba(0,229,255,0.35);
+}
+.glow-btn:active {
+  transform: scale(0.97);
+  box-shadow: 0 0 8px rgba(0,229,255,0.2);
+}
+
+/* 关闭按钮 */
+.close-btn {
+  transition: color 0.15s, transform 0.1s;
+}
+.close-btn:hover {
+  color: #e0f7ff !important;
+}
+.close-btn:active {
+  transform: scale(0.9);
+}
+
+/* 移除按钮 */
+.danger-btn {
+  transition: background 0.15s, transform 0.1s;
+}
+.danger-btn:hover {
+  background: rgba(239, 68, 68, 0.12) !important;
+}
+.danger-btn:active {
+  transform: scale(0.97);
+}
+
+/* 深度选择按钮 */
+.depth-btn {
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+.depth-btn:hover {
+  filter: brightness(1.15);
+}
+.depth-btn:active {
+  transform: scale(0.98);
+}
+
+/* 分享卡片关闭按钮 */
+.ghost-btn {
+  transition: border-color 0.15s, color 0.15s, transform 0.1s;
+}
+.ghost-btn:hover {
+  border-color: #64748b !important;
+  color: #e0f7ff !important;
+}
+.ghost-btn:active {
+  transform: scale(0.97);
+}
+
+/* 分享卡片下载按钮 */
+.download-btn {
+  transition: filter 0.15s, transform 0.1s;
+}
+.download-btn:hover {
+  filter: brightness(1.15);
+}
+.download-btn:active {
+  transform: scale(0.97);
+}
+
