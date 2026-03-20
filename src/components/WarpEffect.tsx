@@ -8,6 +8,8 @@ interface Props {
 export default function WarpEffect({ onDone }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef<number>(0)
+  const onDoneRef = useRef(onDone)
+  onDoneRef.current = onDone
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -95,13 +97,13 @@ export default function WarpEffect({ onDone }: Props) {
       if (t < 1) {
         rafRef.current = requestAnimationFrame(animate)
       } else {
-        onDone()
+        onDoneRef.current()
       }
     }
 
     rafRef.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafRef.current)
-  }, [onDone])
+  }, []) // 只在挂载时运行一次，onDone 通过 ref 访问保持最新
 
   return (
     <canvas

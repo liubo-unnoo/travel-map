@@ -90,6 +90,7 @@ export default function ProvinceMap({ countryCode, countryName, visitedProvinces
         glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
       },
       attributionControl: false,
+      minZoom: 1,
     })
 
     mapRef.current = map
@@ -166,7 +167,7 @@ export default function ProvinceMap({ countryCode, countryName, visitedProvinces
                 f.geometry.coordinates.forEach(poly => poly[0].forEach(([lng, lat]) => bounds.extend([lng, lat])))
               }
             })
-            if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 60, duration: 800 })
+            if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 60, duration: 0, animate: false })
           }
         }
       })
@@ -236,7 +237,6 @@ export default function ProvinceMap({ countryCode, countryName, visitedProvinces
 
   const handleSave = () => {
     if (!selectedProvince) return
-    const wasEmpty = Object.keys(visitedProvinces).length === 0
     onSaveProvince({
       id: selectedProvince.id,
       countryCode,
@@ -245,8 +245,8 @@ export default function ProvinceMap({ countryCode, countryName, visitedProvinces
       visitDepth: selectedDepth,
       note,
     })
-    // 如果这是该国家第一个省份，自动点亮国家
-    if (wasEmpty) onAutoLightRef.current?.()
+    // 每次保存都尝试点亮父国家（handleAutoLightCountry 内部会判断是否已点亮）
+    onAutoLightRef.current?.()
     setSelectedProvince(null)
   }
 

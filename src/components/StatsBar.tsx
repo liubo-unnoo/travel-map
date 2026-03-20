@@ -83,7 +83,26 @@ export default function StatsBar(props: Props) {
         zIndex: 50, pointerEvents: 'none',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'auto' }}>
-          <LangSelector />
+          {/* 返回按钮，占据语种选择器的位置 */}
+          <motion.button
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            onClick={onBack}
+            className="close-btn"
+            style={{
+              background: 'rgba(15, 23, 42, 0.85)',
+              backdropFilter: 'blur(12px)',
+              border: '1px solid #1e3a5f',
+              borderRadius: 16,
+              padding: '12px 18px',
+              cursor: 'pointer',
+              color: '#00e5ff',
+              fontSize: 20,
+              lineHeight: 1,
+              pointerEvents: 'auto',
+            }}
+          >←</motion.button>
+
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -97,15 +116,6 @@ export default function StatsBar(props: Props) {
               whiteSpace: 'nowrap',
             }}
           >
-            <button
-              onClick={onBack}
-              className="close-btn"
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: '#475569', fontSize: 18, lineHeight: 1, padding: '0 4px',
-              }}
-            >←</button>
-
             <div style={{ fontWeight: 800, fontSize: 14, color: '#80f0ff' }}>
               {countryName}
             </div>

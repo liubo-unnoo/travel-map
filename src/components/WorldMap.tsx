@@ -283,7 +283,6 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
       function handleDblClick(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) {
         e.preventDefault()
         if (!e.features || e.features.length === 0) return
-        if (!isOnGlobe(e)) return
         const props = e.features[0].properties as { ADM0_A3: string; NAME: string }
         const rawCode = props.ADM0_A3
         const isoCode = MERGE_TO_CHINA.has(rawCode) ? 'CHN' : rawCode

@@ -33,6 +33,7 @@ function AppInner() {
     setSelectedPlace(null)
     setActiveCountry(place)
     setWarping(true)
+    // 隐藏地球，但等穿越动效结束后再展示省份地图（以便看到放大动画）
   }, [])
 
   const handleWarpDone = useCallback(() => {
@@ -43,6 +44,7 @@ function AppInner() {
   const handleBack = useCallback(() => {
     setMode('globe')
     setActiveCountry(null)
+    setSelectedPlace(null)  // 防止 CountryPanel 遮挡地图，导致下次双击失效
   }, [])
 
   const handleAutoLightCountry = useCallback((country: VisitedPlace) => {
@@ -73,37 +75,35 @@ function AppInner() {
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', background: '#0f172a' }}>
 
-      {/* 地球视图 */}
-      <AnimatePresence>
-        {mode === 'globe' && (
-          <motion.div
-            key="globe"
-            initial={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            style={{ position: 'absolute', inset: 0 }}
-          >
-            <WorldMap
-              mapState={state}
-              onCountryClick={handleCountryClick}
-              onCountryDblClick={handleCountryDblClick}
-              lightCountry={lightCountry}
-              onLightDone={() => setLightCountry(null)}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* 地球视图 - 始终保持挂载，避免每次切回时重建地图实例 */}
+      <div
+        style={{
+          position: 'absolute', inset: 0,
+          opacity: mode === 'globe' ? 1 : 0,
+          pointerEvents: mode === 'globe' ? 'auto' : 'none',
+          transition: 'opacity 0.3s',
+          zIndex: mode === 'globe' ? 1 : 0,
+        }}
+      >
+        <WorldMap
+          mapState={state}
+          onCountryClick={handleCountryClick}
+          onCountryDblClick={handleCountryDblClick}
+          lightCountry={lightCountry}
+          onLightDone={() => setLightCountry(null)}
+        />
+      </div>
 
       {/* 国家省份视图 */}
       <AnimatePresence>
         {mode === 'country' && activeCountry && (
           <motion.div
             key="country"
-            initial={{ opacity: 0, scale: 1.08 }}
+            initial={{ opacity: 0, scale: 0.04 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.45, ease: 'easeOut' }}
-            style={{ position: 'absolute', inset: 0, background: '#060d1a' }}
+            exit={{ opacity: 0, scale: 0.04 }}
+            transition={{ duration: 0.35, ease: [0.15, 0, 0.1, 1] }}
+            style={{ position: 'absolute', inset: 0, background: '#060d1a', transformOrigin: 'center center' }}
           >
             <ProvinceMap
               countryCode={activeCountry.id}
