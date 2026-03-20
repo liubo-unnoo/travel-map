@@ -31,6 +31,7 @@ export const UI_STRINGS = {
     longStayLabel: '长居过',
     shortStayLabel: '深度游',
     passedLabel: '路过',
+    provinces: '省份',
   },
   en: {
     appName: 'Travel Map',
@@ -62,6 +63,7 @@ export const UI_STRINGS = {
     longStayLabel: 'Lived in',
     shortStayLabel: 'Visited',
     passedLabel: 'Passed through',
+    provinces: 'Provinces',
   },
   ja: {
     appName: '旅の足跡',
@@ -93,6 +95,7 @@ export const UI_STRINGS = {
     longStayLabel: '居住経験',
     shortStayLabel: '旅行',
     passedLabel: '通過',
+    provinces: '都道府県',
   },
   ko: {
     appName: '여행 지도',
@@ -124,6 +127,7 @@ export const UI_STRINGS = {
     longStayLabel: '거주',
     shortStayLabel: '여행',
     passedLabel: '통과',
+    provinces: '지방',
   },
   es: {
     appName: 'Mapa de Viajes',
@@ -155,6 +159,7 @@ export const UI_STRINGS = {
     longStayLabel: 'Residí',
     shortStayLabel: 'Visité',
     passedLabel: 'De paso',
+    provinces: 'Provincias',
   },
   fr: {
     appName: 'Carte de Voyage',
@@ -186,6 +191,7 @@ export const UI_STRINGS = {
     longStayLabel: 'Résidé',
     shortStayLabel: 'Visité',
     passedLabel: 'De passage',
+    provinces: 'Provinces',
   },
 } satisfies Record<LangCode, object>
 
