@@ -7,10 +7,12 @@
 ## 一、项目概述
 
 **产品名称**：足迹地图（Travel Map）
-**产品定位**：个人旅行足迹记录工具，在可交互的三维地球上标记并展示去过的国家
-**技术栈**：React 19 + TypeScript + Vite 8 + MapLibre GL 5 + Framer Motion 12
+**产品定位**：个人旅行足迹记录工具，在可交互的三维地球上标记去过的国家及其省份
+**技术栈**：React 18 + TypeScript + Vite + MapLibre GL JS + Framer Motion
 **数据存储**：localStorage（纯前端，无后端）
-**构建命令**：`npm run dev`（开发）/ `npm run build`（生产）
+**部署**：Cloudflare Pages，GitHub 仓库 `liubo-unnoo/travel-map`，push main 后自动部署
+**线上地址**：https://travel-map-8lw.pages.dev
+**本地启动**：`npm run dev`（默认 http://localhost:5173）
 
 ---
 
@@ -23,22 +25,27 @@ travel-map/
 ├── vite.config.ts
 ├── tsconfig.app.json
 └── src/
-    ├── main.tsx              # 入口
-    ├── App.tsx               # 根组件
-    ├── index.css             # 全局样式
-    ├── types.ts              # 类型定义 + 常量
-    ├── store.ts              # 状态管理（localStorage）
+    ├── main.tsx
+    ├── App.tsx
+    ├── index.css
+    ├── types.ts
+    ├── store.ts
     ├── components/
-    │   ├── WorldMap.tsx      # 地球地图（核心）
-    │   ├── StarField.tsx     # 星空背景
-    │   ├── CountryPanel.tsx  # 国家编辑面板
-    │   ├── StatsBar.tsx      # 顶部统计栏
-    │   ├── ShareCard.tsx     # 分享卡片
-    │   └── Toast.tsx         # 提示通知
-    └── i18n/
-        ├── LangContext.tsx   # 语言 Context
-        ├── ui.ts             # UI 字符串（6语言）
-        └── countries.ts     # 国家名称数据库（6语言）
+    │   ├── WorldMap.tsx       # 地球地图（核心）
+    │   ├── ProvinceMap.tsx    # 省份地图（双击国家后进入）
+    │   ├── WarpEffect.tsx     # 穿越动效（Canvas）
+    │   ├── StarField.tsx      # 星空背景（Canvas）
+    │   ├── CountryPanel.tsx   # 国家标记面板
+    │   ├── StatsBar.tsx       # 顶部统计栏
+    │   ├── ShareCard.tsx      # 分享卡片
+    │   ├── Toast.tsx          # 底部提示
+    │   └── GlowButton.tsx     # 发光按钮组件
+    ├── i18n/
+    │   ├── LangContext.tsx    # 语言 Context
+    │   ├── ui.ts              # UI 字符串（6语言）
+    │   └── countries.ts       # 国家名数据库（6语言）
+    └── utils/
+        └── mapPatterns.ts     # 点阵/流光 pattern 渲染（WorldMap 和 ProvinceMap 共用）
 ```
 
 ---
@@ -47,12 +54,11 @@ travel-map/
 
 ```json
 "dependencies": {
-  "react": "^19.2.4",
-  "react-dom": "^19.2.4",
-  "maplibre-gl": "^5.20.2",
-  "framer-motion": "^12.38.0",
-  "html2canvas": "^1.4.1",
-  "@supabase/supabase-js": "^2.99.2"
+  "react": "^18.x",
+  "react-dom": "^18.x",
+  "maplibre-gl": "^5.x",
+  "framer-motion": "^12.x",
+  "html2canvas": "^1.4.1"
 }
 ```
 
@@ -62,27 +68,37 @@ travel-map/
 
 ```typescript
 export interface VisitedPlace {
-  id: string                          // ISO3 国家代码，如 'CHN'
+  id: string                              // ISO3 国家代码，如 'CHN'
   type: 'country' | 'city'
-  name: string                        // 当前语言下的名称
-  nameEn: string                      // 英文名（来自 GeoJSON）
+  name: string                            // 当前语言名称
+  nameEn: string                          // 英文名（来自 GeoJSON）
   countryCode?: string
-  visitDepth: 'passed' | 'short' | 'long'  // 路过 / 短住 / 长居
+  visitDepth: 'passed' | 'short' | 'long' // 路过 / 短住 / 长居
   visitedAt?: string
-  note?: string                       // 用户备注
+  note?: string
+}
+
+export interface VisitedProvince {
+  id: string            // 格式：{countryCode}_{iso_3166_2}，如 'CHN_CN-BJ'
+  countryCode: string
+  name: string
+  nameEn: string
+  visitDepth: 'passed' | 'short' | 'long'
+  note?: string
 }
 
 export interface MapState {
-  visitedCountries: Record<string, VisitedPlace>  // key = ISO3
+  visitedCountries: Record<string, VisitedPlace>
   visitedCities: Record<string, VisitedPlace>
+  visitedProvinces: Record<string, VisitedProvince>
 }
 
 export const TOTAL_COUNTRIES = 195
 
 export const DEPTH_COLORS = {
-  passed: '#93C5FD',   // 浅蓝
-  short:  '#3B82F6',   // 中蓝
-  long:   '#1D4ED8',   // 深蓝
+  passed: '#93C5FD',  // 浅蓝
+  short:  '#3B82F6',  // 中蓝
+  long:   '#1D4ED8',  // 深蓝
 }
 ```
 
@@ -92,35 +108,48 @@ export const DEPTH_COLORS = {
 
 - 使用 React `useState` + localStorage，无外部状态库
 - localStorage key：`'travel-map-data'`
-- 加载时校验数据结构（`visitedCountries` 必须为 object）
-- 暴露方法：`updateCountry(place)`、`removeCountry(id)`、`stats`
+- 加载时校验数据结构，兼容旧版本（`visitedProvinces` 不存在时初始化为 `{}`）
+- 暴露方法：`updateCountry`、`removeCountry`、`updateProvince`、`removeProvince`、`stats`
 
 ```typescript
 // stats 结构
-{
-  totalCountries: number,
-  passed: number,
-  short: number,
-  long: number,
-}
+{ totalCountries: number, passed: number, short: number, long: number }
 ```
 
 ---
 
 ## 六、根组件（src/App.tsx）
 
-- 用 `<LangProvider>` 包裹整个应用（i18n 根节点）
-- 内部组件 `AppInner` 使用 `useLang()` 获取翻译
-- 管理状态：`selectedPlace`、`showShare`、`toast`
-- `handleRemove`：调用 `removeCountry(id)` + `setSelectedPlace(null)`，不再 reload 页面
-- Toast 消息格式：`${place.name} ${t.lit}`
+用 `<LangProvider>` 包裹，内部 `AppInner` 管理两种视图模式：
+
+```typescript
+type AppMode = 'globe' | 'country'
+```
+
+**状态：**
+- `mode` — 当前视图模式
+- `activeCountry` — 当前进入的国家（country 模式时使用）
+- `selectedPlace` — 当前单击选中的国家（显示 CountryPanel）
+- `warping` — 穿越动效是否正在播放
+- `lightCountry` — 当前需要闪光的国家 ISO3 code
+- `showShare` — 分享卡片是否显示
+- `toast` — 底部提示文字
+
+**交互流程：**
+1. 单击国家 → `setSelectedPlace` → 显示 CountryPanel
+2. 双击国家 → `setActiveCountry` + `setMode('country')` + `setWarping(true)` → WarpEffect 播放 → 切换到省份地图
+3. 点击返回 → `setMode('globe')` + 清空 `activeCountry`、`selectedPlace`、`warping`
+
+**视图渲染策略：**
+- WorldMap 和 ProvinceMap 都**始终挂载**，用 `opacity` + `pointerEvents` 控制显隐
+- 避免 AnimatePresence 条件卸载导致 MapLibre 实例重建，引发双击失效问题
+- WarpEffect 通过 `{warping && <WarpEffect />}` 条件渲染，播放完毕后自动卸载
 
 ---
 
 ## 七、全局样式（src/index.css）
 
 ```css
-/* 全局重置 */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body, #root { width: 100%; height: 100%; overflow: hidden; }
 body {
@@ -143,6 +172,22 @@ body {
   background: rgba(59,130,246,0.12); padding: 2px 6px; border-radius: 4px;
 }
 
+/* 按钮样式 */
+.glow-btn {
+  padding: 10px 20px; border-radius: 10px; border: 1px solid #00e5ff;
+  background: rgba(0,229,255,0.08); color: #00e5ff;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 0 12px rgba(0,229,255,0.15); transition: all 0.15s;
+}
+.glow-btn:hover { background: rgba(0,229,255,0.18); box-shadow: 0 0 20px rgba(0,229,255,0.35); }
+.glow-btn:active { transform: scale(0.97); }
+
+.close-btn:hover { color: #94a3b8; }
+.close-btn:active { transform: scale(0.92); }
+.danger-btn:hover { background: rgba(239,68,68,0.1) !important; }
+.danger-btn:active { transform: scale(0.97); }
+.depth-btn:hover { border-color: #334155 !important; background: #0d1f35 !important; }
+
 /* 滚动条 */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -151,223 +196,263 @@ body {
 
 ---
 
-## 八、地球地图（src/components/WorldMap.tsx）
+## 八、共享 Pattern 渲染（src/utils/mapPatterns.ts）
 
-### 8.1 地图初始化
+WorldMap 和 ProvinceMap 共用，避免重复代码。
+
+### 8.1 低精度点阵（renderDotPattern）
+
+- Canvas 尺寸：48×48 px，用于 zoom < 3（WorldMap）/ zoom < 4（ProvinceMap）
+- 13 个固定光点，每点参数 `{x, y, r, a, phase}`
+- 每帧：呼吸（sin 波）、漂移（±1.5px）、hue 漂移（165~205°）
+
+### 8.2 高精度点阵（renderHiDotPattern）
+
+- Canvas 尺寸：256×256 px，用于高缩放级别
+- 60 个 seeded RNG 随机点（seed=137），漂移幅度 ±2.5px，光晕半径 `r*4`
+
+### 8.3 流光边框（renderFlowPattern）
+
+- Canvas 尺寸：1024×5 px（水平 pattern，贴在图层边框上循环）
+- 5 条彗星，各有独立 speed / tailLen / brightness / offset
+- 拖尾平方衰减，色相 hue 188~213（青→蓝）
+
+---
+
+## 九、地球地图（src/components/WorldMap.tsx）
+
+### 9.1 初始化
 
 ```typescript
 new maplibregl.Map({
-  container: containerRef.current,
-  style: {
-    version: 8,
-    projection: { type: 'globe' },   // 球形投影（MapLibre v5）
-    sources: {},
-    layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#060d1a' } }],
-    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-  },
-  center: [104, 35],   // 初始中心：中国地理中心
-  zoom: 1.8,
-  minZoom: 0.8,
-  maxZoom: 6,
+  container, style: { version: 8, projection: { type: 'globe' }, ... },
+  center: [104, 35],  // 中国地理中心
+  zoom: 1.8, minZoom: 0.8, maxZoom: 6,
   attributionControl: false,
 })
+map.setSky({ 'sky-color': '#060d1a', 'atmosphere-blend': 0.15, ... })
+map.doubleClickZoom.disable()  // 禁用默认双击缩放，防止与进入国家视图冲突
 ```
 
-### 8.2 大气层效果（setSky）
-
-```typescript
-map.setSky({
-  'sky-color': '#060d1a',
-  'sky-horizon-blend': 0.2,
-  'horizon-color': '#0a1628',
-  'horizon-fog-blend': 0.05,
-  'fog-color': '#060d1a',
-  'fog-ground-blend': 0.98,
-  'atmosphere-blend': 0.15,
-})
-```
-
-### 8.3 GeoJSON 数据源
+### 9.2 数据源
 
 ```
-URL: https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson
+https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson
 ```
-- 使用 `ne_50m`（1:5000万）精度，包含新加坡等小国
-- `generateId: true` 用于 feature-state hover
+- `generateId: true`，用于 feature-state hover
 
-### 8.4 图层结构（按渲染顺序）
+### 9.3 图层结构
 
-| 图层 ID | 类型 | 作用 | 过滤条件 |
-|---|---|---|---|
-| `countries-unvisited-fill` | fill | 未访问国家底色 `#0d2540` | 非已访问 |
-| `countries-unvisited-border` | line | 未访问国家边框 `#1e4060`，宽 0.6 | 非已访问 |
-| `countries-visited-fill` | fill | 已访问国家暗底 `#041520` | 已访问 |
-| `countries-visited-dots` | fill | 点阵动画叠加（fill-pattern） | 已访问 |
-| `countries-visited-glow3` | line | 外层光晕 `#0099bb`，宽3，blur3，opacity0.2 | 已访问 |
-| `countries-visited-glow2` | line | 中层光晕 `#00e5ff`，宽1.5，blur1.5，opacity0.5 | 已访问 |
-| `countries-visited-glow1` | line | 流光边框（line-pattern），宽1.5 | 已访问 |
-| `countries-hover` | fill | hover 白色高亮 opacity0.08 | 非已访问 |
+| 图层 ID | 类型 | 作用 |
+|---|---|---|
+| `countries-unvisited-fill` | fill | 未访问底色 `#0d2540` |
+| `countries-unvisited-border` | line | 未访问边框 `#1e4060`，宽 0.6 |
+| `countries-visited-fill` | fill | 已访问暗底 `#041520` |
+| `countries-visited-dots` | fill | 点阵动画（fill-pattern: dot-pattern） |
+| `countries-visited-glow3` | line | 外层光晕 `#0099bb`，宽3，blur3，opacity0.2 |
+| `countries-visited-glow2` | line | 中层光晕 `#00e5ff`，宽1.5，blur1.5，opacity0.5 |
+| `countries-visited-glow1` | line | 流光边框（line-pattern: flow-pattern），宽1.5 |
+| `countries-hover` | fill | hover 白色高亮 opacity0.08（仅未访问国家） |
+| `countries-flash-fill` | fill | 保存时发光闪烁（临时图层，opacity 动画） |
+| `countries-flash-glow` | line | 保存时边框闪烁（宽4，blur6） |
 
-### 8.5 点阵动画（低精度，zoom < 3）
-
-- Canvas 尺寸：48×48 px
-- 13 个固定光点，每点有 `{x, y, r, a, phase}` 参数
-- 每帧更新：
-  - 呼吸：`wave = (sin(t*1.2 + phase) + 1) / 2`
-  - 漂移：`drift = sin(t*0.7 + phase*1.3) * 1.5`（±1.5px）
-  - 颜色：hue 在 165~205 之间漂移（青色↔蓝紫色）
-  - 光晕半径：`r * 2.2`，透明度 `alpha * 0.35`
-  - 核心半径：`r * (0.8 + wave * 0.5)`
-
-### 8.6 点阵动画（高精度，zoom ≥ 3）
-
-- Canvas 尺寸：256×256 px
-- 60 个随机分布光点（seeded RNG，seed=137，避免重复规律）
-- 漂移幅度更大（±2.5px），光晕半径 `r * 4`
-
-### 8.7 流光边框动画
-
-- Canvas 尺寸：1024×5 px（水平重复 pattern）
-- 5 条彗星，参数各异：
-
-```typescript
-const COMETS = [
-  { speed: 72,  tailLen: 280, brightness: 1.0,  offset: 0   },
-  { speed: 45,  tailLen: 200, brightness: 0.7,  offset: 310 },
-  { speed: 110, tailLen: 160, brightness: 0.55, offset: 620 },
-  { speed: 58,  tailLen: 240, brightness: 0.85, offset: 180 },
-  { speed: 88,  tailLen: 120, brightness: 0.5,  offset: 750 },
-]
-```
-- 拖尾：平方衰减，色相青→蓝（hue 188~213）
-- 头部：±3px 扩散，颜色 `rgba(210, 248, 255, a)`
-
-### 8.8 动画切换逻辑
-
-```typescript
-const shouldHiRes = zoom >= 3
-if (shouldHiRes !== useHiRes) {
-  // 切换分辨率：removeImage + addImage（不能直接 updateImage 改尺寸）
-  map.removeImage('dot-pattern')
-  map.addImage('dot-pattern', useHiRes ? renderHiDotPattern(t) : renderDotPattern(t))
-} else {
-  map.updateImage('dot-pattern', ...)
-}
-```
-
-### 8.9 台湾/香港/澳门合并逻辑
+### 9.4 台湾/香港/澳门合并逻辑
 
 ```typescript
 const MERGE_TO_CHINA = new Set(['TWN', 'HKG', 'MAC'])
-// 点击/hover 时：isoCode = MERGE_TO_CHINA.has(rawCode) ? 'CHN' : rawCode
-// 图层过滤时：若 CHN 已访问，自动将 TWN/HKG/MAC 加入已访问集合
+// 点击/hover 时统一映射到 CHN
+// buildVisitedSet: 若 CHN 已访问，自动将三者加入已访问集合
 ```
 
-### 8.10 地球边界检测
+### 9.5 点击去抖（防止双击误触单击）
 
 ```typescript
-function isOnGlobe(e): boolean {
-  const cx = canvas.offsetWidth / 2
-  const cy = canvas.offsetHeight / 2
-  const globeRadius = 512 * Math.pow(2, map.getZoom()) / (2 * Math.PI)
-  const dx = e.point.x - cx
-  const dy = e.point.y - cy
-  return dx * dx + dy * dy <= globeRadius * globeRadius
-}
-// 地球外的 click 和 mousemove 均不触发
+let clickTimer: ReturnType<typeof setTimeout> | null = null
+
+// handleClick: 延迟 250ms 执行，dblclick 发生时取消
+clickTimer = setTimeout(() => { onCountryClick(...) }, 250)
+
+// handleDblClick: 先 clearTimeout(clickTimer)，再触发进入逻辑
 ```
 
-### 8.11 stale closure 解决方案
+### 9.6 保存闪光动效
+
+- 触发：`lightCountry` prop 变化时
+- 持续 3000ms，先快速点亮（0→150ms），再缓慢衰减
+- 图层 `countries-flash-fill`（fill-opacity 动画）+ `countries-flash-glow`（line-opacity 动画）
+
+### 9.7 Stale Closure 处理
 
 ```typescript
 const mapStateRef = useRef(mapState)
 const langRef = useRef(lang)
-mapStateRef.current = mapState   // 每次渲染同步
-langRef.current = lang
-// MapLibre 事件回调中读 mapStateRef.current 而非 mapState
+mapStateRef.current = mapState  // 每次渲染同步，事件回调中读 .current
 ```
 
 ---
 
-## 九、星空背景（src/components/StarField.tsx）
+## 十、省份地图（src/components/ProvinceMap.tsx）
 
-- 280 颗星，Canvas 全屏覆盖，`pointerEvents: none`
-- 每颗星参数：`{x, y, vx, vy, radius, phase, speed, baseAlpha}`
-- 漂移速度：`vx/vy = (random - 0.5) * 0.16`（极慢）
-- 超出屏幕边界时从对侧回绕
-- 呼吸：`wave = (sin(t*speed + phase) + 1) / 2`
-- 亮度：`alpha = (0.05 + wave * baseAlpha) * 0.8`（峰值降低20%）
-- 光晕：`sr * 2` 半径，透明度 `alpha * 0.5`
-- 核心：`rgba(220, 235, 255, min(1, alpha*1.5))`
+### 10.1 触发方式
+
+在 WorldMap 双击国家 → App.tsx 触发 WarpEffect + setMode('country') → ProvinceMap 显示
+
+### 10.2 初始化
+
+```typescript
+new maplibregl.Map({
+  container, style: { version: 8, ... },
+  attributionControl: false,
+  minZoom: 1,
+  renderWorldCopies: false,  // 防止俄罗斯等大国地图左右重复
+})
+```
+
+### 10.3 数据源
+
+```
+https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson
+```
+- 用 `adm0_a3` 字段匹配国家，`iso_3166_2` 字段标识省份
+
+### 10.4 图层结构
+
+与 WorldMap 一致，过滤条件改为 `['==', ['get', 'adm0_a3'], countryCode]`：
+
+| 图层 ID | 作用 |
+|---|---|
+| `provinces-unvisited-fill` | 未访问省份底色 |
+| `provinces-unvisited-border` | 未访问边框 |
+| `provinces-visited-fill` | 已访问暗底 |
+| `provinces-visited-dots` | 点阵动画 |
+| `provinces-visited-glow2` | 外层光晕 |
+| `provinces-visited-glow1` | 流光边框 |
+| `provinces-hover` | hover 高亮 |
+
+### 10.5 自动定位
+
+```typescript
+map.on('sourcedata', e => {
+  if (e.sourceId === 'provinces' && e.isSourceLoaded) {
+    // querySourceFeatures 获取该国所有省份，计算 bounds
+    map.fitBounds(bounds, { padding: 60, duration: 0, animate: false })
+  }
+})
+```
+`animate: false` 让地图瞬间定位，配合外层 opacity 过渡，避免看到滑动过程。
+
+### 10.6 省份 ID 格式
+
+```
+{countryCode}_{iso_3166_2}
+// 例：'CHN_CN-BJ'（中国北京）
+```
+
+### 10.7 自动点亮父国家
+
+每次保存省份时都调用 `onAutoLightCountry()`，App.tsx 内 `handleAutoLightCountry` 检查该国是否已访问，未访问则自动保存（visitDepth 取国家已有深度或默认 `'short'`）。
 
 ---
 
-## 十、国家编辑面板（src/components/CountryPanel.tsx）
+## 十一、穿越动效（src/components/WarpEffect.tsx）
 
-- 位置：右侧，垂直居中（`right: 24, top: 50%, translateY(-50%)`）
-- 宽度：280px，背景 `#0d1f35`，圆角 16px
-- 入场动画：`x: 40 → 0`，spring 弹簧动画
+- 全屏 Canvas，`position: fixed`，`zIndex: 300`，`pointerEvents: none`
+- 持续 1200ms，`onDone` 回调通过 ref 保存（`useEffect` 依赖 `[]`，不因回调引用变化重启）
 
-**交互逻辑**：
-- 停留深度按钮：点击只更新本地 `selectedDepth` state，**不立即保存**
-- 备注：受控 textarea，本地 `note` state
-- 保存按钮：`onSave({ ...place, visitDepth: selectedDepth, note })`，保存后面板关闭
-- 移除按钮：仅在 `isVisited` 时显示
-
-**左侧细分数据浮层**（有已访问数据时显示）：
-- 显示长居/深度游/路过各自数量
-- 延迟 0.08s 入场，`x: 16 → 0`
+**动效内容：**
+1. 背景 vignette 渐深（中心透明 → 边缘深色）
+2. 4 圈扩散光环（从中心向外扩散，循环）
+3. 120 个矩阵光点向外飞散（含拖尾渐变）
+4. 末尾白光闪烁（进度 75%~100%）
 
 ---
 
-## 十一、顶部统计栏（src/components/StatsBar.tsx）
+## 十二、星空背景（src/components/StarField.tsx）
 
-- 位置：顶部居中，`top: 20`，`zIndex: 50`
-- 背景：`rgba(15, 23, 42, 0.85)` + `backdropFilter: blur(12px)`
+- 280 颗星，Canvas 全屏，`pointerEvents: none`
+- 每帧慢速漂移（±0.5px），边界回绕
+- 呼吸动画（sin 波），光晕 + 核心双层绘制
+- WorldMap 和 ProvinceMap 均使用
+
+---
+
+## 十三、国家标记面板（src/components/CountryPanel.tsx）
+
+- 位置：`position: fixed`，右侧 128px，垂直居中（`top:0, bottom:0, margin: auto 0`）
+- 宽度：280px，背景 `#0d1f35`，圆角 16px，padding 24px
+- 入场：`x: 40 → 0`，spring 弹簧（stiffness:300, damping:30）
+- `key={place.id}` 确保切换国家时 state 自动重置
+
+**交互：**
+- 深度按钮：本地 state，不立即保存
+- 备注：`defaultValue` + `onChange` 受控
+- 保存：调用 `onSave({ ...place, visitDepth, note })`
+- 移除：仅 `isVisited` 时显示，调用 `onRemove(place.id)`
+
+---
+
+## 十四、顶部统计栏（src/components/StatsBar.tsx）
+
+两种模式，通过 discriminated union props 区分：
+
+### Globe 模式（mode: 'global'）
+
+布局（从左到右）：语言选择器 | 应用名 | 已探索% | 国家数（可展开细分）| 分享按钮
+
+### Country 模式（mode: 'country'）
+
+布局：← 返回按钮（替代语言选择器位置）| 国家名 | 省份数（可展开细分）
+
+**共同样式：**
+- `position: absolute`，`top: 20`，水平居中，`zIndex: 50`
+- 背景 `rgba(15,23,42,0.85)` + `backdropFilter: blur(12px)`
 - 圆角 16px，边框 `#1e3a5f`
 
-**展示内容（从左到右）**：
-1. App 名称（`t.appName`）
-2. 分隔线
-3. 已探索 % + 国家数（点击国家数可展开/收起路过/短住/长居细分）
-4. 分隔线
-5. 语言切换下拉（`<select>`，自定义箭头图标）
-6. 分隔线
-7. 分享按钮
+**展开动画：** `AnimatePresence` + `width: 0 → auto`，200ms
 
-**展开动画**：`AnimatePresence` + `width: 0 → auto`，duration 0.2s
+**语言选择器：** `<select>` 透明覆盖在自定义 UI 上，显示当前语言名称 + 三角箭头
 
 ---
 
-## 十二、分享卡片（src/components/ShareCard.tsx）
+## 十五、发光按钮（src/components/GlowButton.tsx）
 
-- 全屏遮罩：`rgba(0,0,0,0.7)` + `backdropFilter: blur(4px)`
-- 卡片宽度：360px，渐变背景 `135deg, #0f172a → #1e293b → #0f2744`
-- 使用 `html2canvas` 截图，scale: 2（2倍清晰度）
+```typescript
+interface Props {
+  onClick?: () => void
+  children: ReactNode
+  fullWidth?: boolean
+  style?: CSSProperties
+}
+// 渲染 <button className="glow-btn" style={{ width: fullWidth ? '100%' : undefined, ...style }}>
+```
+
+所有视觉样式在 `index.css` 的 `.glow-btn` 类中定义（hover/active 状态通过 CSS 实现）。
+
+---
+
+## 十六、分享卡片（src/components/ShareCard.tsx）
+
+- 全屏遮罩 `rgba(0,0,0,0.7)` + `backdropFilter: blur(4px)`
+- 卡片 360px，渐变背景 `135deg, #0f172a → #1e293b → #0f2744`
+- 使用 `html2canvas` 截图，scale: 2
 - 下载文件名：`${t.shareTitle}.png`
 
-**卡片内容**：
-- 标题：`t.shareTitle`
-- 数字：`total` + `t.countriesUnit`（单位字段，各语言独立）
-- 副标题：`t.shareSubtitle(pct)`
-- 进度条：`width: 0 → pct%`，delay 0.3s，duration 1s
-- 分类列表：长居/深度游/路过（有数据才显示），国家名超40字截断
-- 底部：`t.shareFooter`
+**内容：** 标题 → 数字+单位 → 已探索% 副标题 → 进度条（动画）→ 按深度分类的国家列表（名称超40字截断）→ 底部署名
 
 ---
 
-## 十三、Toast 通知（src/components/Toast.tsx）
+## 十七、Toast 通知（src/components/Toast.tsx）
 
-- 位置：底部居中，`bottom: 32`
-- 样式：`rgba(0, 229, 255, 0.12)` 背景，`rgba(0, 229, 255, 0.35)` 边框
-- 自动消失：2500ms 后调用 `onDone()`
-- 触发时机：保存国家后，消息格式 `${place.name} ${t.lit}`
+- 底部居中，`bottom: 32`
+- 青色风格：背景 `rgba(0,229,255,0.12)`，边框 `rgba(0,229,255,0.35)`
+- 2500ms 后自动消失，调用 `onDone()`
+- 触发：保存国家后，消息格式 `${place.name} ${t.lit}`
 
 ---
 
-## 十四、国际化系统（src/i18n/）
+## 十八、国际化（src/i18n/）
 
-### 14.1 支持语言
+### 支持语言
 
 | 代码 | 显示名 |
 |---|---|
@@ -378,56 +463,39 @@ langRef.current = lang
 | es | Español |
 | fr | Français |
 
-### 14.2 语言检测与持久化（LangContext.tsx）
+### 语言检测（LangContext.tsx）
 
-```typescript
-// 优先级：localStorage > 浏览器语言 > 英文
-const LANG_STORAGE_KEY = 'travel-map-lang'
-function detectInitialLang(): LangCode {
-  const saved = localStorage.getItem(LANG_STORAGE_KEY)
-  if (saved && saved in UI_STRINGS) return saved as LangCode
-  const b = navigator.language.toLowerCase()
-  if (b.startsWith('zh')) return 'zh'
-  if (b.startsWith('ja')) return 'ja'
-  if (b.startsWith('ko')) return 'ko'
-  if (b.startsWith('es')) return 'es'
-  if (b.startsWith('fr')) return 'fr'
-  return 'en'
-}
-// 切换语言时同步写入 localStorage
-```
+优先级：localStorage → 浏览器语言 → 英文
+localStorage key：`'travel-map-lang'`
 
-### 14.3 UI 字符串键（ui.ts）
-
-每种语言包含以下所有键：
+### UI 字符串键（ui.ts）
 
 ```
 appName, countries, explored, passed, short, long, share, hint,
 visited, unvisited, depthLabel, note, notePlaceholder, remove, save,
 update, lit, shortStay, longStay, shareTitle, shareSubtitle(fn),
 shareCountries(fn), countriesUnit, shareFooter, download, close,
-longStayLabel, shortStayLabel, passedLabel
+longStayLabel, shortStayLabel, passedLabel, provinces
 ```
 
-### 14.4 国家名数据库（countries.ts）
+### 国家名数据库（countries.ts）
 
-- 195 个国家，ISO3 代码为 key
-- 每个国家包含 6 种语言名称
-- `getCountryName(iso3, lang, fallback?)` 查找函数，找不到时返回 fallback 或 iso3
+- 195 个国家，ISO3 为 key，6 种语言名称
+- `getCountryName(iso3, lang, fallback?)` 查找函数
 
 ---
 
-## 十五、视觉设计规范
+## 十九、视觉设计规范
 
 ### 配色
 
 | 用途 | 颜色值 |
 |---|---|
 | 页面背景 | `#0f172a` |
-| 地球背景 | `#050a14` / `#060d1a` |
-| 未访问国家 | `#0d2540` |
+| 地球/省份地图背景 | `#060d1a` |
+| 未访问国家/省份 | `#0d2540` |
 | 未访问边框 | `#1e4060` |
-| 已访问国家底色 | `#041520` |
+| 已访问暗底 | `#041520` |
 | 发光边框（亮） | `#00e5ff` |
 | 发光边框（暗） | `#0099bb` |
 | 面板背景 | `#0d1f35` |
@@ -441,18 +509,24 @@ longStayLabel, shortStayLabel, passedLabel
 
 ### 动画规范
 
-- 面板入场：`spring { stiffness: 300, damping: 30 }`，`x: 40 → 0`
-- 统计栏入场：`y: -20 → 0`
-- 展开收起：`width: 0 → auto`，duration 0.2s
-- 进度条：`width: 0 → pct%`，duration 1s，delay 0.3s
+| 场景 | 参数 |
+|---|---|
+| 面板入场 | spring stiffness:300 damping:30，x: 40→0 |
+| 统计栏入场 | y: -20→0，opacity: 0→1 |
+| 展开细分数据 | width: 0→auto，200ms |
+| 进度条 | width: 0→pct%，1000ms，delay 300ms |
+| 穿越动效 | Canvas，1200ms |
+| 省份视图切入 | opacity 过渡 300ms |
 
 ---
 
-## 十六、关键实现细节
+## 二十、关键实现细节
 
-1. **MapLibre v5 不支持 `setFog()`**，必须用 `setSky()` 实现大气效果
-2. **动态 pattern 动画**：用 `map.addImage()` 注册，每帧 `map.updateImage()` 更新；切换尺寸时必须先 `removeImage` 再 `addImage`
-3. **GeoJSON 异步加载**：监听 `sourcedata` 事件，在 `isSourceLoaded` 时重新应用图层过滤器
-4. **stale closure**：MapLibre 事件回调中通过 `ref.current` 读取最新 React state
-5. **地球外点击屏蔽**：用公式 `512 * 2^zoom / 2π` 计算地球像素半径，超出圆形范围不触发
-6. **pattern 切换阈值**：zoom ≥ 3 切换到 256px 高精度 pattern，避免放大时看到重复规律
+1. **WorldMap/ProvinceMap 始终挂载**：用 `opacity`+`pointerEvents` 切换，不用条件渲染，防止 MapLibre 实例重建导致事件失效
+2. **WarpEffect onDone 用 ref**：`useEffect([], [])` 只运行一次，通过 `onDoneRef.current()` 调用最新回调，防止 cleanup 中断动画
+3. **双击去抖**：click 延迟 250ms 执行，dblclick 时清除 timer，防止双击同时触发单击面板
+4. **pattern 动画**：`updateImage` 每帧更新后必须调用 `triggerRepaint()`，否则 MapLibre 不会重绘
+5. **pattern 分辨率切换**：zoom 阈值达到时先 `removeImage` 再 `addImage`（不能直接 `updateImage` 改尺寸）
+6. **GeoJSON 异步加载**：监听 `sourcedata` + `isSourceLoaded`，加载完后重新 `setFilter` 更新图层
+7. **Stale closure**：MapLibre 事件回调通过 `ref.current` 读取最新 React state
+8. **renderWorldCopies: false**：ProvinceMap 关闭世界重复渲染，防止俄罗斯等大国地图左右复制

@@ -231,6 +231,7 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
       })
 
       let hoveredId: string | number | null = null
+      let clickTimer: ReturnType<typeof setTimeout> | null = null
 
       map.on('mousemove', 'countries-unvisited-fill', e => handleMouseMove(e))
       map.on('mousemove', 'countries-visited-fill', e => handleMouseMove(e))
@@ -281,6 +282,8 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
       map.doubleClickZoom.disable()
 
       function handleDblClick(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) {
+        // 取消因双击第一下触发的 click
+        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null }
         e.preventDefault()
         if (!e.features || e.features.length === 0) return
         const props = e.features[0].properties as { ADM0_A3: string; NAME: string }
@@ -310,7 +313,12 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
         const isoCode = MERGE_TO_CHINA.has(rawCode) ? 'CHN' : rawCode
         const chName = getCountryName(isoCode, langRef.current, props.NAME)
         const existing = mapStateRef.current.visitedCountries[isoCode]
-        onCountryClick({ id: isoCode, type: 'country', name: chName, nameEn: props.NAME, visitDepth: existing?.visitDepth ?? 'short', note: existing?.note })
+        // 延迟执行，等待 250ms 确认不是双击
+        if (clickTimer) clearTimeout(clickTimer)
+        clickTimer = setTimeout(() => {
+          clickTimer = null
+          onCountryClick({ id: isoCode, type: 'country', name: chName, nameEn: props.NAME, visitDepth: existing?.visitDepth ?? 'short', note: existing?.note })
+        }, 250)
       }
     })
 

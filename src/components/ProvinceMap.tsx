@@ -91,6 +91,7 @@ export default function ProvinceMap({ countryCode, countryName, visitedProvinces
       },
       attributionControl: false,
       minZoom: 1,
+      renderWorldCopies: false,
     })
 
     mapRef.current = map

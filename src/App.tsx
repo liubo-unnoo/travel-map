@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+
 import WorldMap from './components/WorldMap'
 import CountryPanel from './components/CountryPanel'
 import ProvinceMap from './components/ProvinceMap'
@@ -32,19 +32,19 @@ function AppInner() {
   const handleCountryDblClick = useCallback((place: VisitedPlace) => {
     setSelectedPlace(null)
     setActiveCountry(place)
+    setMode('country')
     setWarping(true)
-    // 隐藏地球，但等穿越动效结束后再展示省份地图（以便看到放大动画）
   }, [])
 
   const handleWarpDone = useCallback(() => {
     setWarping(false)
-    setMode('country')
   }, [])
 
   const handleBack = useCallback(() => {
     setMode('globe')
     setActiveCountry(null)
-    setSelectedPlace(null)  // 防止 CountryPanel 遮挡地图，导致下次双击失效
+    setSelectedPlace(null)
+    setWarping(false)
   }, [])
 
   const handleAutoLightCountry = useCallback((country: VisitedPlace) => {
@@ -94,28 +94,29 @@ function AppInner() {
         />
       </div>
 
-      {/* 国家省份视图 */}
-      <AnimatePresence>
-        {mode === 'country' && activeCountry && (
-          <motion.div
-            key="country"
-            initial={{ opacity: 0, scale: 0.04 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.04 }}
-            transition={{ duration: 0.35, ease: [0.15, 0, 0.1, 1] }}
-            style={{ position: 'absolute', inset: 0, background: '#060d1a', transformOrigin: 'center center' }}
-          >
-            <ProvinceMap
-              countryCode={activeCountry.id}
-              countryName={activeCountry.name}
-              visitedProvinces={countryProvinces}
-              onSaveProvince={updateProvince}
-              onRemoveProvince={removeProvince}
-              onAutoLightCountry={() => handleAutoLightCountry(activeCountry)}
-            />
-          </motion.div>
+      {/* 国家省份视图 - 始终保持挂载，切换时用 opacity 控制 */}
+      <div
+        style={{
+          position: 'absolute', inset: 0,
+          opacity: mode === 'country' && activeCountry ? 1 : 0,
+          pointerEvents: mode === 'country' && activeCountry ? 'auto' : 'none',
+          transition: 'opacity 0.3s',
+          zIndex: mode === 'country' ? 2 : 0,
+          background: '#060d1a',
+        }}
+      >
+        {activeCountry && (
+          <ProvinceMap
+            key={activeCountry.id}
+            countryCode={activeCountry.id}
+            countryName={activeCountry.name}
+            visitedProvinces={countryProvinces}
+            onSaveProvince={updateProvince}
+            onRemoveProvince={removeProvince}
+            onAutoLightCountry={() => handleAutoLightCountry(activeCountry)}
+          />
         )}
-      </AnimatePresence>
+      </div>
 
       {/* 统计栏 */}
       {mode === 'globe' ? (
