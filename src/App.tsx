@@ -128,6 +128,7 @@ function AppInner() {
           mapState={state}
           onCountryClick={handleCountryClick}
           onCountryDblClick={handleCountryDblClick}
+          onEmptyClick={() => setSelectedPlace(null)}
           lightCountry={lightCountry}
           onLightDone={() => setLightCountry(null)}
         />

@@ -7,11 +7,13 @@ import { getCountryName } from '../i18n/countries'
 import { useLang } from '../i18n/LangContext'
 import { UI_STRINGS } from '../i18n/ui'
 import { renderDotPattern, renderHiDotPattern, renderFlowPattern } from '../utils/mapPatterns'
+import { prefetchProvinceData } from '../utils/prefetch'
 
 interface Props {
   mapState: MapState
   onCountryClick: (place: VisitedPlace) => void
   onCountryDblClick?: (place: VisitedPlace) => void
+  onEmptyClick?: () => void          // 点击地球外围空白区域时触发（用于关闭面板）
   lightCountry?: string | null
   onLightDone?: () => void
 }
@@ -29,7 +31,7 @@ function buildVisitedSet(visited: MapState['visitedCountries']): Set<string> {
   return s
 }
 
-export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, lightCountry, onLightDone }: Props) {
+export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, onEmptyClick, lightCountry, onLightDone }: Props) {
   const { lang } = useLang()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -46,6 +48,8 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
 
   const onCountryDblClickRef = useRef(onCountryDblClick)
   onCountryDblClickRef.current = onCountryDblClick
+  const onEmptyClickRef = useRef(onEmptyClick)
+  onEmptyClickRef.current = onEmptyClick
 
   const buildVisitedFilter = useCallback(() => {
     const codes = [...buildVisitedSet(mapStateRef.current.visitedCountries)]
@@ -96,6 +100,9 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
     let clickTimer: ReturnType<typeof setTimeout> | null = null
 
     map.on('load', () => {
+      // 地球加载完成后立即预取省份 GeoJSON，用户浏览地球期间后台下载
+      prefetchProvinceData()
+
       map.setSky({
         'sky-color': '#060d1a',
         'sky-horizon-blend': 0.2,
@@ -317,6 +324,7 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
 
       function handleClick(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) {
         if (!e.features || e.features.length === 0) return
+        if (!isOnGlobe(e)) return  // 地球外围区域不响应点击
         const props = e.features[0].properties as { ADM0_A3: string; NAME: string }
         const rawCode = props.ADM0_A3
         const isoCode = MERGE_TO_CHINA.has(rawCode) ? 'CHN' : rawCode
@@ -348,6 +356,17 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
           onCountryClick(place)
         }, 300)
       }
+
+      // 点击地球外围空白区域（非国家图层）时关闭面板
+      map.on('click', (e: maplibregl.MapMouseEvent) => {
+        // 查询点击位置是否命中了国家图层
+        const features = map.queryRenderedFeatures(e.point, {
+          layers: ['countries-unvisited-fill', 'countries-visited-fill'],
+        })
+        if (features.length === 0 || !isOnGlobe(e)) {
+          onEmptyClickRef.current?.()
+        }
+      })
     })
 
     return () => {

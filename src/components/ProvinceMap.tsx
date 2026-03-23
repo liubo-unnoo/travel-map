@@ -8,8 +8,8 @@ import { useLang } from '../i18n/LangContext'
 import GlowButton from './GlowButton'
 import StarField from './StarField'
 import { renderDotPattern, renderHiDotPattern, renderFlowPattern } from '../utils/mapPatterns'
+import { getProvinceData } from '../utils/prefetch'
 
-const PROVINCE_SOURCE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
 const GLOW_DIM = '#0099bb'
 
 interface ProvinceFeatureProps {
@@ -127,9 +127,8 @@ export default function ProvinceMap({ countryCode, visitedProvinces, onSaveProvi
     if (!containerRef.current || mapRef.current) return
     let cancelled = false
 
-    // Fetch GeoJSON, filter to this country, compute bounds, then init map
-    fetch(PROVINCE_SOURCE)
-      .then(r => r.json())
+    // 使用预取缓存获取省份数据（若已在地球视图期间预取完成则直接命中）
+    getProvinceData()
       .then((geojson: GeoJSON.FeatureCollection) => {
         if (cancelled || !containerRef.current) return
 
