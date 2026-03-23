@@ -141,3 +141,27 @@ body {
   transform: scale(0.97);
 }
 
+/* 进入国家按钮（CountryPanel） */
+.enter-btn {
+  transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.1s;
+}
+.enter-btn:hover {
+  border-color: #00e5ff !important;
+  background: rgba(0, 229, 255, 0.1) !important;
+}
+.enter-btn:active {
+  transform: scale(0.95);
+}
+
+/* 返回按钮（StatsBar country 模式） */
+.back-btn {
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+.back-btn:hover {
+  border-color: #00e5ff !important;
+  background: rgba(0, 229, 255, 0.1) !important;
+}
+.back-btn:active {
+  transform: scale(0.95);
+}
+

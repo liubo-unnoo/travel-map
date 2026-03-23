@@ -18,10 +18,11 @@ interface Props {
 
 const MERGE_TO_CHINA = new Set(['TWN', 'HKG', 'MAC'])
 
-// 点亮国家的青色系配色
+// 已访问国家发光边框颜色
 const GLOW_COLOR = '#00e5ff'
 const GLOW_COLOR_DIM = '#0099bb'
 
+// 将已访问国家集合构建为 Set，同时处理台湾/香港/澳门归并逻辑
 function buildVisitedSet(visited: MapState['visitedCountries']): Set<string> {
   const s = new Set(Object.keys(visited))
   if (s.has('CHN')) MERGE_TO_CHINA.forEach(c => s.add(c))
@@ -34,6 +35,10 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
   const mapRef = useRef<maplibregl.Map | null>(null)
   const popupRef = useRef<maplibregl.Popup | null>(null)
   const rafRef = useRef<number>(0)
+
+  // Stale closure 处理：MapLibre 事件回调在 useEffect 初始化时捕获，
+  // 如果直接读 mapState/lang 会永远是初始值。
+  // 通过 ref 每次渲染同步最新值，回调中读 .current 来获取最新状态。
   const mapStateRef = useRef(mapState)
   const langRef = useRef(lang)
   mapStateRef.current = mapState
@@ -44,6 +49,7 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
 
   const buildVisitedFilter = useCallback(() => {
     const codes = [...buildVisitedSet(mapStateRef.current.visitedCountries)]
+    // 无访问记录时返回永不匹配的 filter，避免图层报错
     if (codes.length === 0) return ['==', 'ADM0_A3', ''] as unknown as maplibregl.ExpressionSpecification
     return ['in', ['get', 'ADM0_A3'], ['literal', codes]] as unknown as maplibregl.ExpressionSpecification
   }, [])
@@ -87,6 +93,8 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
 
     mapRef.current = map
 
+    let clickTimer: ReturnType<typeof setTimeout> | null = null
+
     map.on('load', () => {
       map.setSky({
         'sky-color': '#060d1a',
@@ -98,7 +106,9 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
         'atmosphere-blend': 0.15,
       })
 
-      // 注册点阵 pattern + 流光 pattern，并启动动画
+      // ── Pattern 动画 ──────────────────────────────────────────────────────
+      // 点阵/流光 pattern 每帧通过 updateImage 替换，配合 triggerRepaint 强制重绘。
+      // zoom 跨越阈值时需先 removeImage 再 addImage（不能直接用 updateImage 改尺寸）。
       map.addImage('dot-pattern', renderDotPattern(0))
       map.addImage('flow-pattern', renderFlowPattern(0))
       let t = 0
@@ -131,6 +141,11 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
 
       const initFilter = buildVisitedFilter()
       const initNotFilter = ['!', initFilter] as unknown as maplibregl.ExpressionSpecification
+
+      // ── 图层结构 ──────────────────────────────────────────────────────────
+      // 未访问：底色 + 边框
+      // 已访问：暗底 → 点阵叠加 → 三层发光边框（外→内模拟晕光）
+      // hover：仅覆盖未访问国家，已访问国家不需要额外 hover 状态
 
       // === 未点亮国家 ===
       map.addLayer({
@@ -231,7 +246,17 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
       })
 
       let hoveredId: string | number | null = null
-      let clickTimer: ReturnType<typeof setTimeout> | null = null
+
+      function isOnGlobe(e: maplibregl.MapMouseEvent): boolean {
+        const canvas = map.getCanvas()
+        const cx = canvas.offsetWidth / 2
+        const cy = canvas.offsetHeight / 2
+        const zoom = map.getZoom()
+        const globeRadius = 512 * Math.pow(2, zoom) / (2 * Math.PI)
+        const dx = e.point.x - cx
+        const dy = e.point.y - cy
+        return dx * dx + dy * dy <= globeRadius * globeRadius
+      }
 
       map.on('mousemove', 'countries-unvisited-fill', e => handleMouseMove(e))
       map.on('mousemove', 'countries-visited-fill', e => handleMouseMove(e))
@@ -274,60 +299,70 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
         popupRef.current?.remove(); popupRef.current = null
       }
 
-      map.on('click', 'countries-unvisited-fill', e => handleClick(e))
-      map.on('click', 'countries-visited-fill', e => handleClick(e))
-      map.on('dblclick', 'countries-unvisited-fill', e => handleDblClick(e))
-      map.on('dblclick', 'countries-visited-fill', e => handleDblClick(e))
-      // 禁用地图默认双击缩放，避免与进入国家视图冲突
+      // ── 点击去抖 ──────────────────────────────────────────────────────────
+      // 单击：延迟 300ms 执行（等待确认不是双击）
+      // 双击：300ms 内连续两次点击同一国家 = 双击，取消待执行的单击 timer，直接进入省份视图
+      // 注意 clickTimer 声明在 useEffect 外层作用域，确保 cleanup 可以访问并清除
+
+      // 禁用地图默认双击缩放
       map.doubleClickZoom.disable()
 
-      function handleDblClick(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) {
-        // 取消因双击第一下触发的 click
-        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null }
-        e.preventDefault()
-        if (!e.features || e.features.length === 0) return
-        const props = e.features[0].properties as { ADM0_A3: string; NAME: string }
-        const rawCode = props.ADM0_A3
-        const isoCode = MERGE_TO_CHINA.has(rawCode) ? 'CHN' : rawCode
-        const chName = getCountryName(isoCode, langRef.current, props.NAME)
-        const existing = mapStateRef.current.visitedCountries[isoCode]
-        onCountryDblClickRef.current?.({ id: isoCode, type: 'country', name: chName, nameEn: props.NAME, visitDepth: existing?.visitDepth ?? 'short', note: existing?.note })
-      }
+      // 用连击计数检测双击，彻底规避 MapLibre dblclick 事件的不稳定问题：
+      // 300ms 内连续两次点击同一国家 = 进入省份视图
+      let lastClickCode = ''
+      let lastClickTime = 0
 
-      function isOnGlobe(e: maplibregl.MapMouseEvent): boolean {
-        const canvas = map.getCanvas()
-        const cx = canvas.offsetWidth / 2
-        const cy = canvas.offsetHeight / 2
-        const zoom = map.getZoom()
-        const globeRadius = 512 * Math.pow(2, zoom) / (2 * Math.PI)
-        const dx = e.point.x - cx
-        const dy = e.point.y - cy
-        return dx * dx + dy * dy <= globeRadius * globeRadius
-      }
+      map.on('click', 'countries-unvisited-fill', e => handleClick(e))
+      map.on('click', 'countries-visited-fill', e => handleClick(e))
 
       function handleClick(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) {
         if (!e.features || e.features.length === 0) return
-        if (!isOnGlobe(e)) return
         const props = e.features[0].properties as { ADM0_A3: string; NAME: string }
         const rawCode = props.ADM0_A3
         const isoCode = MERGE_TO_CHINA.has(rawCode) ? 'CHN' : rawCode
         const chName = getCountryName(isoCode, langRef.current, props.NAME)
         const existing = mapStateRef.current.visitedCountries[isoCode]
-        // 延迟执行，等待 250ms 确认不是双击
+        const place: VisitedPlace = {
+          id: isoCode, type: 'country', name: chName, nameEn: props.NAME,
+          visitDepth: existing?.visitDepth ?? 'short', note: existing?.note,
+        }
+
+        const now = Date.now()
+        const isDoubleClick = isoCode === lastClickCode && now - lastClickTime < 350
+        lastClickCode = isoCode
+        lastClickTime = now
+
+        if (isDoubleClick) {
+          // 双击：取消待执行的单击，触发进入
+          if (clickTimer) { clearTimeout(clickTimer); clickTimer = null }
+          lastClickCode = ''
+          lastClickTime = 0
+          onCountryDblClickRef.current?.(place)
+          return
+        }
+
+        // 单击：延迟 300ms，等待确认不是双击再弹面板
         if (clickTimer) clearTimeout(clickTimer)
         clickTimer = setTimeout(() => {
           clickTimer = null
-          onCountryClick({ id: isoCode, type: 'country', name: chName, nameEn: props.NAME, visitDepth: existing?.visitDepth ?? 'short', note: existing?.note })
-        }, 250)
+          onCountryClick(place)
+        }, 300)
       }
     })
 
     return () => {
       cancelAnimationFrame(rafRef.current)
+      if (clickTimer) clearTimeout(clickTimer)
       map.remove()
       mapRef.current = null
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── 保存闪光动效 ────────────────────────────────────────────────────────
+  // lightCountry prop 变化时触发，持续 3000ms：
+  //   0~5%   → 快速点亮（fill + glow 同步上升）
+  //   5~100% → 缓慢衰减（平方曲线，视觉上先亮后暗）
+  // flash 图层懒创建：首次触发时 addLayer，后续切换国家只更新 filter
 
   const flashRafRef = useRef<number>(0)
 

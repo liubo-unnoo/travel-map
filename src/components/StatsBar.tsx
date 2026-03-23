@@ -24,6 +24,15 @@ type Props = GlobalProps | CountryProps
 
 const LANGS = Object.keys(LANG_LABELS) as LangCode[]
 
+function calcDepthStats(list: { visitDepth: string }[]) {
+  return {
+    total: list.length,
+    passed: list.filter(p => p.visitDepth === 'passed').length,
+    short: list.filter(p => p.visitDepth === 'short').length,
+    long: list.filter(p => p.visitDepth === 'long').length,
+  }
+}
+
 export function LangSelector() {
   const { lang, setLang } = useLang()
   return (
@@ -70,11 +79,7 @@ export default function StatsBar(props: Props) {
 
   if (props.mode === 'country') {
     const { countryName, visitedProvinces, onBack } = props
-    const list = Object.values(visitedProvinces)
-    const total = list.length
-    const passed = list.filter(p => p.visitDepth === 'passed').length
-    const short = list.filter(p => p.visitDepth === 'short').length
-    const long = list.filter(p => p.visitDepth === 'long').length
+    const { total, passed, short, long } = calcDepthStats(Object.values(visitedProvinces))
 
     return (
       <div style={{
@@ -88,20 +93,25 @@ export default function StatsBar(props: Props) {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             onClick={onBack}
-            className="close-btn"
+            className="back-btn"
             style={{
               background: 'rgba(15, 23, 42, 0.85)',
               backdropFilter: 'blur(12px)',
               border: '1px solid #1e3a5f',
               borderRadius: 16,
-              padding: '12px 18px',
+              padding: '10px 16px',
               cursor: 'pointer',
               color: '#00e5ff',
-              fontSize: 20,
-              lineHeight: 1,
+              display: 'flex', alignItems: 'center', gap: 4,
+              fontSize: 13, fontWeight: 600,
               pointerEvents: 'auto',
             }}
-          >←</motion.button>
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5M11 6l-6 6 6 6"/>
+            </svg>
+            返回
+          </motion.button>
 
           <motion.div
             initial={{ opacity: 0, y: -20 }}
@@ -152,11 +162,7 @@ export default function StatsBar(props: Props) {
 
   // global mode
   const { visitedCountries, onShareClick } = props
-  const list = Object.values(visitedCountries)
-  const total = list.length
-  const passed = list.filter(p => p.visitDepth === 'passed').length
-  const short = list.filter(p => p.visitDepth === 'short').length
-  const long = list.filter(p => p.visitDepth === 'long').length
+  const { total, passed, short, long } = calcDepthStats(Object.values(visitedCountries))
   const pct = Math.round((total / TOTAL_COUNTRIES) * 100)
 
   return (

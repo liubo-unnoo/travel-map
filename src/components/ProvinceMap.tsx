@@ -10,12 +10,16 @@ import StarField from './StarField'
 import { renderDotPattern, renderHiDotPattern, renderFlowPattern } from '../utils/mapPatterns'
 
 const PROVINCE_SOURCE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
-const GLOW_COLOR = '#00e5ff'
 const GLOW_DIM = '#0099bb'
 
 interface ProvinceFeatureProps {
   name: string
   name_en: string
+  name_zh: string
+  name_ja: string
+  name_ko: string
+  name_es: string
+  name_fr: string
   iso_3166_2: string
   adm0_a3: string
 }
@@ -29,14 +33,51 @@ interface SelectedProvince {
 
 interface Props {
   countryCode: string
-  countryName: string
   visitedProvinces: Record<string, VisitedProvince>
   onSaveProvince: (province: VisitedProvince) => void
   onRemoveProvince: (id: string) => void
-  onAutoLightCountry?: () => void  // 保存省份时如果国家未点亮则自动触发
+  onAutoLightCountry?: () => void
 }
 
-export default function ProvinceMap({ countryCode, countryName, visitedProvinces, onSaveProvince, onRemoveProvince, onAutoLightCountry }: Props) {
+function getProvinceName(props: ProvinceFeatureProps, lang: string): string {
+  const map: Record<string, string> = {
+    zh: props.name_zh,
+    ja: props.name_ja,
+    ko: props.name_ko,
+    es: props.name_es,
+    fr: props.name_fr,
+    en: props.name_en,
+  }
+  return map[lang] || props.name_en || props.name
+}
+
+// 计算 GeoJSON 几何的 bbox（原始坐标，不做任何 shift）
+function computeBounds(features: GeoJSON.Feature[]): { minLng: number; maxLng: number; minLat: number; maxLat: number; crossesDateline: boolean } {
+  let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity
+
+  for (const f of features) {
+    const geom = f.geometry
+    const rings: number[][][] = []
+    if (geom.type === 'Polygon') {
+      rings.push(...geom.coordinates)
+    } else if (geom.type === 'MultiPolygon') {
+      for (const poly of geom.coordinates) rings.push(...poly)
+    }
+    for (const ring of rings) {
+      for (const [lng, lat] of ring) {
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
+      }
+    }
+  }
+
+  const crossesDateline = (maxLng - minLng) > 180
+  return { minLng, maxLng, minLat, maxLat, crossesDateline }
+}
+
+export default function ProvinceMap({ countryCode, visitedProvinces, onSaveProvince, onRemoveProvince, onAutoLightCountry }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const popupRef = useRef<maplibregl.Popup | null>(null)
@@ -45,7 +86,11 @@ export default function ProvinceMap({ countryCode, countryName, visitedProvinces
   visitedRef.current = visitedProvinces
   const onAutoLightRef = useRef(onAutoLightCountry)
   onAutoLightRef.current = onAutoLightCountry
-  const { t } = useLang()
+  const { t, lang } = useLang()
+  const tRef = useRef(t)
+  const langRef = useRef(lang)
+  tRef.current = t
+  langRef.current = lang
 
   const [selectedProvince, setSelectedProvince] = useState<SelectedProvince | null>(null)
   const [selectedDepth, setSelectedDepth] = useState<'passed' | 'short' | 'long'>('short')
@@ -71,161 +116,194 @@ export default function ProvinceMap({ countryCode, countryName, visitedProvinces
     const map = mapRef.current
     if (!map || !map.isStyleLoaded()) return
     if (!map.getLayer('provinces-visited-fill')) return
-    const vf = buildVisitedFilter()
-    map.setFilter('provinces-visited-fill', vf)
-    map.setFilter('provinces-visited-dots', vf)
-    map.setFilter('provinces-visited-glow2', vf)
-    map.setFilter('provinces-visited-glow1', vf)
+    const visitedFilter = buildVisitedFilter()
+    map.setFilter('provinces-visited-fill', visitedFilter)
+    map.setFilter('provinces-visited-dots', visitedFilter)
+    map.setFilter('provinces-visited-glow2', visitedFilter)
+    map.setFilter('provinces-visited-glow1', visitedFilter)
   }, [buildVisitedFilter])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
+    let cancelled = false
 
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: {
-        version: 8,
-        sources: {},
-        layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#060d1a' } }],
-        glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-      },
-      attributionControl: false,
-      minZoom: 1,
-      renderWorldCopies: false,
-    })
+    // Fetch GeoJSON, filter to this country, compute bounds, then init map
+    fetch(PROVINCE_SOURCE)
+      .then(r => r.json())
+      .then((geojson: GeoJSON.FeatureCollection) => {
+        if (cancelled || !containerRef.current) return
 
-    mapRef.current = map
+        // Filter features for this country
+        const countryFeatures = geojson.features.filter(
+          f => f.properties?.adm0_a3 === countryCode
+        )
 
-    map.on('load', () => {
-      // 注册点阵 + 流光 pattern 并启动动画
-      map.addImage('dot-pattern', renderDotPattern(0))
-      map.addImage('flow-pattern', renderFlowPattern(0))
-      let t = 0
-      let useHiRes = false
-      const animatePattern = () => {
-        t += 0.016
-        const zoom = map.getZoom()
-        const shouldHiRes = zoom >= 4
-
-        if (shouldHiRes !== useHiRes) {
-          useHiRes = shouldHiRes
-          if (map.hasImage('dot-pattern')) map.removeImage('dot-pattern')
-          map.addImage('dot-pattern', useHiRes ? renderHiDotPattern(t) : renderDotPattern(t))
-        } else {
-          if (map.hasImage('dot-pattern')) map.updateImage('dot-pattern', useHiRes ? renderHiDotPattern(t) : renderDotPattern(t))
+        const countryGeoJSON: GeoJSON.FeatureCollection = {
+          type: 'FeatureCollection',
+          features: countryFeatures,
         }
-        if (map.hasImage('flow-pattern')) map.updateImage('flow-pattern', renderFlowPattern(t))
-        map.triggerRepaint()
-        rafRef.current = requestAnimationFrame(animatePattern)
-      }
-      rafRef.current = requestAnimationFrame(animatePattern)
 
-      map.addSource('provinces', {
-        type: 'geojson',
-        data: PROVINCE_SOURCE,
-        generateId: true,
-      })
+        const { minLng, maxLng, minLat, maxLat, crossesDateline } = computeBounds(countryFeatures)
 
-      const cf = ['==', ['get', 'adm0_a3'], countryCode] as unknown as maplibregl.ExpressionSpecification
-      const vf = buildVisitedFilter()
-
-      // 未点亮省份
-      map.addLayer({ id: 'provinces-unvisited-fill', type: 'fill', source: 'provinces', filter: cf,
-        paint: { 'fill-color': '#0d2540', 'fill-opacity': 0.9 } })
-      map.addLayer({ id: 'provinces-unvisited-border', type: 'line', source: 'provinces', filter: cf,
-        paint: { 'line-color': '#1e4060', 'line-width': 0.8 } })
-
-      // 已点亮省份 - 暗底
-      map.addLayer({ id: 'provinces-visited-fill', type: 'fill', source: 'provinces', filter: vf,
-        paint: { 'fill-color': '#041520', 'fill-opacity': 0.9 } })
-
-      // 已点亮省份 - 点阵
-      map.addLayer({ id: 'provinces-visited-dots', type: 'fill', source: 'provinces', filter: vf,
-        paint: { 'fill-pattern': 'dot-pattern', 'fill-opacity': 0.9 } })
-
-      // 已点亮省份 - 发光边框
-      map.addLayer({ id: 'provinces-visited-glow2', type: 'line', source: 'provinces', filter: vf,
-        paint: { 'line-color': GLOW_DIM, 'line-width': 2, 'line-blur': 3, 'line-opacity': 0.25 } })
-      map.addLayer({ id: 'provinces-visited-glow1', type: 'line', source: 'provinces', filter: vf,
-        paint: { 'line-pattern': 'flow-pattern', 'line-width': 1.5 } })
-
-      // hover
-      map.addLayer({ id: 'provinces-hover', type: 'fill', source: 'provinces', filter: cf,
-        paint: { 'fill-color': '#ffffff', 'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.08, 0] } })
-
-      map.on('sourcedata', e => {
-        if (e.sourceId === 'provinces' && e.isSourceLoaded) {
-          updateLayers()
-          const features = map.querySourceFeatures('provinces', {
-            filter: ['==', ['get', 'adm0_a3'], countryCode] as unknown as maplibregl.ExpressionSpecification,
-          })
-          if (features.length > 0) {
-            const bounds = new maplibregl.LngLatBounds()
-            features.forEach(f => {
-              if (f.geometry.type === 'Polygon') {
-                f.geometry.coordinates[0].forEach(([lng, lat]) => bounds.extend([lng, lat]))
-              } else if (f.geometry.type === 'MultiPolygon') {
-                f.geometry.coordinates.forEach(poly => poly[0].forEach(([lng, lat]) => bounds.extend([lng, lat])))
-              }
-            })
-            if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 60, duration: 0, animate: false })
+        // 跨日期线国家：负经度 +360 加权平均求真实中心
+        let initCenter: [number, number]
+        if (countryFeatures.length === 0) {
+          initCenter = [0, 20]
+        } else if (crossesDateline) {
+          let sumLng = 0, count = 0
+          for (const f of countryFeatures) {
+            const rings: number[][][] = []
+            if (f.geometry.type === 'Polygon') rings.push(...f.geometry.coordinates)
+            else if (f.geometry.type === 'MultiPolygon') for (const p of f.geometry.coordinates) rings.push(...p)
+            for (const ring of rings) for (const [lng] of ring) { sumLng += lng < 0 ? lng + 360 : lng; count++ }
           }
+          const avgLng = count > 0 ? sumLng / count : 0
+          initCenter = [avgLng > 180 ? avgLng - 360 : avgLng, (minLat + maxLat) / 2]
+        } else {
+          initCenter = [(minLng + maxLng) / 2, (minLat + maxLat) / 2]
         }
+
+        const map = new maplibregl.Map({
+          container: containerRef.current!,
+          style: {
+            version: 8,
+            sources: {},
+            layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#060d1a' } }],
+            glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+          },
+          attributionControl: false,
+          center: initCenter,
+          zoom: 2,
+          minZoom: 2,   // zoom=2 时屏幕约 90°，绝不会出现第二份世界
+          maxZoom: 12,
+          // renderWorldCopies 保持默认 true，允许地球连续渲染，配合 minZoom:2 不会出现重复
+        })
+
+        mapRef.current = map
+
+        map.on('load', () => {
+          // Animated dot/flow patterns
+          map.addImage('dot-pattern', renderDotPattern(0))
+          map.addImage('flow-pattern', renderFlowPattern(0))
+          let t = 0
+          let useHiRes = false
+          const animatePattern = () => {
+            t += 0.016
+            const zoom = map.getZoom()
+            const shouldHiRes = zoom >= 4
+            if (shouldHiRes !== useHiRes) {
+              useHiRes = shouldHiRes
+              if (map.hasImage('dot-pattern')) map.removeImage('dot-pattern')
+              map.addImage('dot-pattern', useHiRes ? renderHiDotPattern(t) : renderDotPattern(t))
+            } else {
+              if (map.hasImage('dot-pattern')) map.updateImage('dot-pattern', useHiRes ? renderHiDotPattern(t) : renderDotPattern(t))
+            }
+            if (map.hasImage('flow-pattern')) map.updateImage('flow-pattern', renderFlowPattern(t))
+            map.triggerRepaint()
+            rafRef.current = requestAnimationFrame(animatePattern)
+          }
+          rafRef.current = requestAnimationFrame(animatePattern)
+
+          // Use pre-filtered data directly — no need for querySourceFeatures
+          map.addSource('provinces', { type: 'geojson', data: countryGeoJSON, generateId: true })
+
+          const countryFilter = ['==', ['get', 'adm0_a3'], countryCode] as unknown as maplibregl.ExpressionSpecification
+          const visitedFilter = buildVisitedFilter()
+
+          map.addLayer({ id: 'provinces-unvisited-fill', type: 'fill', source: 'provinces', filter: countryFilter,
+            paint: { 'fill-color': '#0d2540', 'fill-opacity': 0.9 } })
+          map.addLayer({ id: 'provinces-unvisited-border', type: 'line', source: 'provinces', filter: countryFilter,
+            paint: { 'line-color': '#1e4060', 'line-width': 0.8 } })
+          map.addLayer({ id: 'provinces-visited-fill', type: 'fill', source: 'provinces', filter: visitedFilter,
+            paint: { 'fill-color': '#041520', 'fill-opacity': 0.9 } })
+          map.addLayer({ id: 'provinces-visited-dots', type: 'fill', source: 'provinces', filter: visitedFilter,
+            paint: { 'fill-pattern': 'dot-pattern', 'fill-opacity': 0.9 } })
+          map.addLayer({ id: 'provinces-visited-glow2', type: 'line', source: 'provinces', filter: visitedFilter,
+            paint: { 'line-color': GLOW_DIM, 'line-width': 2, 'line-blur': 3, 'line-opacity': 0.25 } })
+          map.addLayer({ id: 'provinces-visited-glow1', type: 'line', source: 'provinces', filter: visitedFilter,
+            paint: { 'line-pattern': 'flow-pattern', 'line-width': 1.5 } })
+          map.addLayer({ id: 'provinces-hover', type: 'fill', source: 'provinces', filter: countryFilter,
+            paint: { 'fill-color': '#ffffff', 'fill-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 0.08, 0] } })
+
+          // 定位到国家范围
+          if (countryFeatures.length > 0) {
+            if (crossesDateline) {
+              // 跨日期线大国：根据纬度跨度估算 zoom，用 jumpTo 定位
+              const latSpan = maxLat - minLat
+              const zoom = Math.max(2, Math.min(5, Math.log2(60 / latSpan)))
+              map.jumpTo({ center: initCenter, zoom: Math.round(zoom * 10) / 10 })
+            } else {
+              map.fitBounds(
+                [[minLng, minLat], [maxLng, maxLat]],
+                { padding: 60, duration: 0, maxZoom: 7 }
+              )
+            }
+          }
+
+          // Hover & click handlers
+          let hoveredId: string | number | null = null
+
+          function handleMouseMove(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) {
+            if (!e.features?.length) return
+            if (hoveredId !== null) map.setFeatureState({ source: 'provinces', id: hoveredId }, { hover: false })
+            hoveredId = e.features[0].id ?? null
+            if (hoveredId !== null) map.setFeatureState({ source: 'provinces', id: hoveredId }, { hover: true })
+            map.getCanvas().style.cursor = 'pointer'
+
+            const props = e.features[0].properties as ProvinceFeatureProps
+            if (!popupRef.current) {
+              popupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'map-tooltip' })
+            }
+            const pid = `${countryCode}_${props.iso_3166_2}`
+            const visited = visitedRef.current[pid]
+            const depthMap: Record<string, string> = { passed: String(tRef.current.passed), short: String(tRef.current.short), long: String(tRef.current.long) }
+            const depthLabel = visited ? depthMap[visited.visitDepth] ?? '' : ''
+            const displayName = getProvinceName(props, langRef.current)
+            popupRef.current.setLngLat(e.lngLat).setHTML(`
+              <div class="tooltip-content">
+                <span class="tooltip-name">${displayName}</span>
+                ${visited ? `<span class="tooltip-badge">${depthLabel}</span>` : ''}
+              </div>
+            `).addTo(map)
+          }
+
+          function handleMouseLeave() {
+            if (hoveredId !== null) { map.setFeatureState({ source: 'provinces', id: hoveredId }, { hover: false }); hoveredId = null }
+            map.getCanvas().style.cursor = ''
+            popupRef.current?.remove(); popupRef.current = null
+          }
+
+          map.on('mousemove', 'provinces-unvisited-fill', handleMouseMove)
+          map.on('mousemove', 'provinces-visited-fill', handleMouseMove)
+          map.on('mouseleave', 'provinces-unvisited-fill', handleMouseLeave)
+          map.on('mouseleave', 'provinces-visited-fill', handleMouseLeave)
+
+          map.on('click', 'provinces-unvisited-fill', handleClick)
+          map.on('click', 'provinces-visited-fill', handleClick)
+
+          function handleClick(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) {
+            if (!e.features?.length) return
+            const props = e.features[0].properties as ProvinceFeatureProps
+            const pid = `${countryCode}_${props.iso_3166_2}`
+            const existing = visitedRef.current[pid]
+            const displayName = getProvinceName(props, langRef.current)
+            setSelectedProvince({ id: pid, name: displayName, nameEn: props.name_en ?? props.name, code: props.iso_3166_2 })
+            setSelectedDepth(existing?.visitDepth ?? 'short')
+            setNote(existing?.note ?? '')
+          }
+        })
       })
-
-      let hoveredId: string | number | null = null
-
-      function handleMouseMove(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) {
-        if (!e.features?.length) return
-        if (hoveredId !== null) map.setFeatureState({ source: 'provinces', id: hoveredId }, { hover: false })
-        hoveredId = e.features[0].id ?? null
-        if (hoveredId !== null) map.setFeatureState({ source: 'provinces', id: hoveredId }, { hover: true })
-        map.getCanvas().style.cursor = 'pointer'
-
-        const props = e.features[0].properties as ProvinceFeatureProps
-        if (!popupRef.current) {
-          popupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'map-tooltip' })
-        }
-        const pid = `${countryCode}_${props.iso_3166_2}`
-        const visited = visitedRef.current[pid]
-        const depthLabel = visited ? ({ passed: t.passed, short: t.short, long: t.long })[visited.visitDepth] : ''
-        popupRef.current.setLngLat(e.lngLat).setHTML(`
-          <div class="tooltip-content">
-            <span class="tooltip-name">${props.name}</span>
-            ${visited ? `<span class="tooltip-badge">${depthLabel}</span>` : ''}
-          </div>
-        `).addTo(map)
-      }
-
-      function handleMouseLeave() {
-        if (hoveredId !== null) { map.setFeatureState({ source: 'provinces', id: hoveredId }, { hover: false }); hoveredId = null }
-        map.getCanvas().style.cursor = ''
-        popupRef.current?.remove(); popupRef.current = null
-      }
-
-      map.on('mousemove', 'provinces-unvisited-fill', handleMouseMove)
-      map.on('mousemove', 'provinces-visited-fill', handleMouseMove)
-      map.on('mouseleave', 'provinces-unvisited-fill', handleMouseLeave)
-      map.on('mouseleave', 'provinces-visited-fill', handleMouseLeave)
-
-      map.on('click', 'provinces-unvisited-fill', handleClick)
-      map.on('click', 'provinces-visited-fill', handleClick)
-
-      function handleClick(e: maplibregl.MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) {
-        if (!e.features?.length) return
-        const props = e.features[0].properties as ProvinceFeatureProps
-        const pid = `${countryCode}_${props.iso_3166_2}`
-        const existing = visitedRef.current[pid]
-        setSelectedProvince({ id: pid, name: props.name, nameEn: props.name_en ?? props.name, code: props.iso_3166_2 })
-        setSelectedDepth(existing?.visitDepth ?? 'short')
-        setNote(existing?.note ?? '')
-      }
-    })
+      .catch(err => {
+        console.error('[ProvinceMap] Failed to load province data:', err)
+      })
 
     return () => {
+      cancelled = true
       cancelAnimationFrame(rafRef.current)
-      map.remove()
-      mapRef.current = null
+      if (mapRef.current) {
+        mapRef.current.remove()
+        mapRef.current = null
+      }
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -246,7 +324,6 @@ export default function ProvinceMap({ countryCode, countryName, visitedProvinces
       visitDepth: selectedDepth,
       note,
     })
-    // 每次保存都尝试点亮父国家（handleAutoLightCountry 内部会判断是否已点亮）
     onAutoLightRef.current?.()
     setSelectedProvince(null)
   }
@@ -312,7 +389,7 @@ export default function ProvinceMap({ countryCode, countryName, visitedProvinces
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 11, color: '#475569', marginBottom: 6 }}>{t.note}</div>
                 <textarea
-                  placeholder={t.notePlaceholder}
+                  placeholder={String(t.notePlaceholder)}
                   defaultValue={note}
                   onChange={e => setNote(e.target.value)}
                   rows={2}
@@ -335,10 +412,10 @@ export default function ProvinceMap({ countryCode, countryName, visitedProvinces
                       border: '1px solid #ef4444', background: 'transparent',
                       color: '#ef4444', cursor: 'pointer', fontSize: 12,
                     }}
-                  >{t.remove}</button>
+                  >{String(t.remove)}</button>
                 )}
                 <GlowButton onClick={handleSave} fullWidth style={{ flex: 2, padding: '8px 0' }}>
-                  {isVisited ? t.update : t.save}
+                  {isVisited ? String(t.update) : String(t.save)}
                 </GlowButton>
               </div>
             </div>

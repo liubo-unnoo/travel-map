@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 
 import WorldMap from './components/WorldMap'
 import CountryPanel from './components/CountryPanel'
@@ -11,6 +11,7 @@ import { useMapStore } from './store'
 import type { VisitedPlace } from './types'
 import { LangProvider, useLang } from './i18n/LangContext'
 
+// 两种视图模式：地球全图 / 单国省份图
 type AppMode = 'globe' | 'country'
 
 function AppInner() {
@@ -18,17 +19,35 @@ function AppInner() {
   const { t } = useLang()
 
   const [mode, setMode] = useState<AppMode>('globe')
-  const [activeCountry, setActiveCountry] = useState<VisitedPlace | null>(null)
-  const [selectedPlace, setSelectedPlace] = useState<VisitedPlace | null>(null)
+  const [activeCountry, setActiveCountry] = useState<VisitedPlace | null>(null)  // 当前进入的国家
+  const [selectedPlace, setSelectedPlace] = useState<VisitedPlace | null>(null)  // 单击选中的国家（显示面板）
   const [showShare, setShowShare] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
-  const [lightCountry, setLightCountry] = useState<string | null>(null)
-  const [warping, setWarping] = useState(false)
+  const [lightCountry, setLightCountry] = useState<string | null>(null)  // 保存时触发闪光的国家 ISO3
+  const [warping, setWarping] = useState(false)  // 穿越动效是否正在播放
 
+  // ─── 启动时数据修复 ─────────────────────────────────────────────────────────
+  // 兼容旧数据：如果省份记录存在但父国家记录缺失（可能由旧版本产生），
+  // 自动补录一条默认 short 的国家记录，确保地球视图正确点亮
+  useEffect(() => {
+    const missing = new Set<string>()
+    Object.keys(state.visitedProvinces).forEach(id => {
+      const countryCode = id.split('_')[0]
+      if (!state.visitedCountries[countryCode]) missing.add(countryCode)
+    })
+    missing.forEach(code => {
+      updateCountry({ id: code, type: 'country', name: code, nameEn: code, visitDepth: 'short' })
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── 地球视图交互 ────────────────────────────────────────────────────────────
+
+  // 单击国家：弹出 CountryPanel
   const handleCountryClick = useCallback((place: VisitedPlace) => {
     setSelectedPlace(place)
   }, [])
 
+  // 双击国家：关闭面板，播放穿越动效，切换到省份视图
   const handleCountryDblClick = useCallback((place: VisitedPlace) => {
     setSelectedPlace(null)
     setActiveCountry(place)
@@ -36,22 +55,39 @@ function AppInner() {
     setWarping(true)
   }, [])
 
+  // 穿越动效结束回调
   const handleWarpDone = useCallback(() => {
     setWarping(false)
   }, [])
 
+  // ─── 省份视图交互 ────────────────────────────────────────────────────────────
+
+  // 返回地球视图
+  // 注意：延迟 350ms 才 unmount ProvinceMap，确保 opacity 过渡结束后再销毁
+  // 否则 map.remove() 会导致白屏闪烁
   const handleBack = useCallback(() => {
+    // 若该国有省份记录但国家本身未点亮，自动补录（防止省份视图内只操作省份未保存国家的情况）
+    if (activeCountry && !state.visitedCountries[activeCountry.id]) {
+      const hasProvinces = Object.keys(state.visitedProvinces).some(id => id.startsWith(activeCountry.id + '_'))
+      if (hasProvinces) {
+        updateCountry({ ...activeCountry, visitDepth: activeCountry.visitDepth ?? 'short' })
+      }
+    }
     setMode('globe')
-    setActiveCountry(null)
     setSelectedPlace(null)
     setWarping(false)
-  }, [])
+    setTimeout(() => setActiveCountry(null), 350)
+  }, [activeCountry, state.visitedCountries, state.visitedProvinces, updateCountry])
 
+  // 保存省份时自动点亮父国家（若尚未点亮）
   const handleAutoLightCountry = useCallback((country: VisitedPlace) => {
     if (state.visitedCountries[country.id]) return
     updateCountry({ ...country, visitDepth: country.visitDepth ?? 'short' })
   }, [state.visitedCountries, updateCountry])
 
+  // ─── 地球视图面板操作 ────────────────────────────────────────────────────────
+
+  // 保存国家：写入 store，触发地球闪光动效，显示 Toast
   const handleSave = useCallback((place: VisitedPlace) => {
     updateCountry(place)
     setSelectedPlace(null)
@@ -66,6 +102,7 @@ function AppInner() {
 
   const isVisited = selectedPlace ? !!state.visitedCountries[selectedPlace.id] : false
 
+  // 过滤出当前国家的省份记录，传给 ProvinceMap
   const countryProvinces = activeCountry
     ? Object.fromEntries(
         Object.entries(state.visitedProvinces).filter(([id]) => id.startsWith(activeCountry.id + '_'))
@@ -75,7 +112,9 @@ function AppInner() {
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', background: '#0f172a' }}>
 
-      {/* 地球视图 - 始终保持挂载，避免每次切回时重建地图实例 */}
+      {/* ── 地球视图 ──────────────────────────────────────────────────────────
+          始终挂载（不条件卸载），避免每次切回时重建 MapLibre 实例导致事件失效。
+          通过 opacity + pointerEvents 控制可见性。 */}
       <div
         style={{
           position: 'absolute', inset: 0,
@@ -94,7 +133,9 @@ function AppInner() {
         />
       </div>
 
-      {/* 国家省份视图 - 始终保持挂载，切换时用 opacity 控制 */}
+      {/* ── 省份视图 ──────────────────────────────────────────────────────────
+          同上，始终挂载。key={activeCountry.id} 确保切换国家时 ProvinceMap 重置。
+          activeCountry 延迟 350ms 清空，避免 map.remove() 白屏。 */}
       <div
         style={{
           position: 'absolute', inset: 0,
@@ -109,7 +150,6 @@ function AppInner() {
           <ProvinceMap
             key={activeCountry.id}
             countryCode={activeCountry.id}
-            countryName={activeCountry.name}
             visitedProvinces={countryProvinces}
             onSaveProvince={updateProvince}
             onRemoveProvince={removeProvince}
@@ -118,7 +158,7 @@ function AppInner() {
         )}
       </div>
 
-      {/* 统计栏 */}
+      {/* 顶部统计栏：globe 模式显示全局统计，country 模式显示省份统计 + 返回键 */}
       {mode === 'globe' ? (
         <StatsBar
           mode="global"
@@ -134,7 +174,7 @@ function AppInner() {
         />
       ) : null}
 
-      {/* 国家详情面板（地球视图） */}
+      {/* 国家标记面板（仅 globe 模式下单击后显示） */}
       {mode === 'globe' && selectedPlace && (
         <CountryPanel
           place={selectedPlace}
@@ -142,10 +182,11 @@ function AppInner() {
           onSave={handleSave}
           onRemove={handleRemove}
           onClose={() => setSelectedPlace(null)}
+          onEnter={handleCountryDblClick}
         />
       )}
 
-      {/* 分享卡片 */}
+      {/* 分享卡片（全屏遮罩） */}
       {showShare && (
         <ShareCard
           visitedCountries={state.visitedCountries}
@@ -153,7 +194,7 @@ function AppInner() {
         />
       )}
 
-      {/* 空状态提示 */}
+      {/* 空状态引导提示（无足迹时显示） */}
       {mode === 'globe' && stats.totalCountries === 0 && (
         <div style={{
           position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)',
@@ -163,7 +204,7 @@ function AppInner() {
         </div>
       )}
 
-      {/* 穿越动效 */}
+      {/* 穿越动效：双击国家时播放，onDone 后卸载 */}
       {warping && <WarpEffect onDone={handleWarpDone} />}
 
       <Toast message={toast} onDone={() => setToast(null)} />

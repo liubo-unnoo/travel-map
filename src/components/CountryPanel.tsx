@@ -11,9 +11,10 @@ interface Props {
   onSave: (place: VisitedPlace) => void
   onRemove: (id: string) => void
   onClose: () => void
+  onEnter: (place: VisitedPlace) => void
 }
 
-export default function CountryPanel({ place, isVisited, onSave, onRemove, onClose }: Props) {
+export default function CountryPanel({ place, isVisited, onSave, onRemove, onClose, onEnter }: Props) {
   const { t } = useLang()
   const [selectedDepth, setSelectedDepth] = useState(place?.visitDepth ?? 'short')
   const [note, setNote] = useState(place?.note ?? '')
@@ -60,7 +61,25 @@ export default function CountryPanel({ place, isVisited, onSave, onRemove, onClo
             <div style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>
               {isVisited ? t.visited : t.unvisited}
             </div>
-            <div style={{ fontSize: 24, fontWeight: 700, color: '#e0f7ff' }}>{place.name}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#e0f7ff' }}>{place.name}</div>
+              <button
+                onClick={() => onEnter(place)}
+                className="enter-btn"
+                style={{
+                  flexShrink: 0,
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  background: 'none', border: '1px solid #1e3a5f', borderRadius: 6,
+                  padding: '4px 10px', cursor: 'pointer', color: '#00e5ff',
+                  fontSize: 12, lineHeight: '20px', whiteSpace: 'nowrap',
+                }}
+              >
+                进入
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14M13 6l6 6-6 6"/>
+                </svg>
+              </button>
+            </div>
             <div style={{ fontSize: 12, color: '#334155', marginTop: 2 }}>{place.nameEn}</div>
           </div>
 

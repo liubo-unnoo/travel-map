@@ -2,10 +2,11 @@ import { useEffect, useRef } from 'react'
 
 interface Props {
   onDone: () => void
+  loop?: boolean  // loop=true 时循环播放，不调 onDone，用于 loading 状态
 }
 
 // 穿越动效：地球放大 + 矩阵光点向外扩散 + 白光闪烁，持续约 1.2s
-export default function WarpEffect({ onDone }: Props) {
+export default function WarpEffect({ onDone, loop = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef<number>(0)
   const onDoneRef = useRef(onDone)
@@ -21,16 +22,17 @@ export default function WarpEffect({ onDone }: Props) {
     const cx = canvas.width / 2
     const cy = canvas.height / 2
     const DURATION = 1200
-    const start = performance.now()
+    let start = performance.now()
 
     // 生成随机光点（矩阵风格）
-    const dots = Array.from({ length: 120 }, () => ({
+    const makeDots = () => Array.from({ length: 120 }, () => ({
       angle: Math.random() * Math.PI * 2,
       speed: 180 + Math.random() * 320,
       r: 2 + Math.random() * 3,
       dist: 40 + Math.random() * 200,
       hue: 185 + Math.random() * 30,
     }))
+    let dots = makeDots()
 
     const animate = (now: number) => {
       const elapsed = now - start
@@ -86,15 +88,12 @@ export default function WarpEffect({ onDone }: Props) {
         ctx.fill()
       }
 
-      // 末尾白光闪烁
-      if (t > 0.75) {
-        const flash = (t - 0.75) / 0.25
-        const flashAlpha = flash * flash * 0.95
-        ctx.fillStyle = `rgba(220,248,255,${flashAlpha})`
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-      }
-
       if (t < 1) {
+        rafRef.current = requestAnimationFrame(animate)
+      } else if (loop) {
+        // 循环：重置 start 和光点，继续播放
+        start = performance.now()
+        dots = makeDots()
         rafRef.current = requestAnimationFrame(animate)
       } else {
         onDoneRef.current()
@@ -103,7 +102,7 @@ export default function WarpEffect({ onDone }: Props) {
 
     rafRef.current = requestAnimationFrame(animate)
     return () => cancelAnimationFrame(rafRef.current)
-  }, []) // 只在挂载时运行一次，onDone 通过 ref 访问保持最新
+  }, [loop])
 
   return (
     <canvas

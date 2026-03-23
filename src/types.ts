@@ -31,9 +31,3 @@ export const DEPTH_COLORS = {
   short: '#3B82F6',   // 中蓝 - 短住
   long: '#1D4ED8',    // 深蓝 - 长居
 }
-
-export const DEPTH_LABELS = {
-  passed: '路过',
-  short: '短住（1天-1个月）',
-  long: '长居（1个月以上）',
-}
