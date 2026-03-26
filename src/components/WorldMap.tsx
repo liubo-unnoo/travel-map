@@ -97,6 +97,11 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
 
     mapRef.current = map
 
+    // 监听容器尺寸变化，自动触发 map.resize()
+    // 解决 SplashScreen 遮盖期间 MapLibre canvas 尺寸为 0，消失后地图空白的问题
+    const ro = new ResizeObserver(() => { map.resize() })
+    if (containerRef.current) ro.observe(containerRef.current)
+
     let clickTimer: ReturnType<typeof setTimeout> | null = null
 
     map.on('load', () => {
@@ -370,6 +375,7 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
     })
 
     return () => {
+      ro.disconnect()
       cancelAnimationFrame(rafRef.current)
       if (clickTimer) clearTimeout(clickTimer)
       map.remove()

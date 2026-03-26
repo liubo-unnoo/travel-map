@@ -7,6 +7,8 @@ import StatsBar from './components/StatsBar'
 import ShareCard from './components/ShareCard'
 import Toast from './components/Toast'
 import WarpEffect from './components/WarpEffect'
+import SplashScreen from './components/SplashScreen'
+import { prefetchProvinceData } from './utils/prefetch'
 import { useMapStore } from './store'
 import type { VisitedPlace } from './types'
 import { LangProvider, useLang } from './i18n/LangContext'
@@ -25,6 +27,7 @@ function AppInner() {
   const [toast, setToast] = useState<string | null>(null)
   const [lightCountry, setLightCountry] = useState<string | null>(null)  // 保存时触发闪光的国家 ISO3
   const [warping, setWarping] = useState(false)  // 穿越动效是否正在播放
+  const [showSplash, setShowSplash] = useState(true)
 
   // ─── 启动时数据修复 ─────────────────────────────────────────────────────────
   // 兼容旧数据：如果省份记录存在但父国家记录缺失（可能由旧版本产生），
@@ -38,6 +41,8 @@ function AppInner() {
     missing.forEach(code => {
       updateCountry({ id: code, type: 'country', name: code, nameEn: code, visitDepth: 'short' })
     })
+    // 欢迎页显示期间提前预取省份数据
+    prefetchProvinceData()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── 地球视图交互 ────────────────────────────────────────────────────────────
@@ -207,6 +212,8 @@ function AppInner() {
 
       {/* 穿越动效：双击国家时播放，onDone 后卸载 */}
       {warping && <WarpEffect onDone={handleWarpDone} />}
+
+      {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
 
       <Toast message={toast} onDone={() => setToast(null)} />
     </div>
