@@ -18,8 +18,6 @@ const PHASE_PAUSE   = 900
 // 遮罩整体淡出
 const PHASE_FADEOUT = 900
 
-// 逐字打出总时长
-const PHASE_TYPING  = TEXT.length * CHAR_INTERVAL
 
 export default function SplashScreen({ onDone }: Props) {
   const [visibleCount, setVisibleCount] = useState(0)
