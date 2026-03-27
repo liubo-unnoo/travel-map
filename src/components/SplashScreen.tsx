@@ -5,74 +5,70 @@ interface Props {
   onDone: () => void
 }
 
-// 动画时间线（ms）
-const PHASE_FADEIN  = 500   // 纯淡入
-const PHASE_GLOW    = 800   // 发光脉冲
-const PHASE_HOLD    = 2000  // 停留
-const PHASE_TEXTOUT = 700   // 文字单独淡出（遮罩保持不透明）
-const PHASE_PAUSE   = 900   // 文字消失后纯黑屏停顿
-const PHASE_FADEOUT = 900   // 遮罩整体淡出，地图显现
+const TEXT = '真正的发现之旅，不在于寻找新风景，而在于拥有新眼光'
+
+// 每个字的显示间隔（ms）
+const CHAR_INTERVAL = 150
+// 所有字显示完后的停留时间
+const PHASE_HOLD    = 2000
+// 文字单独淡出
+const PHASE_TEXTOUT = 700
+// 纯黑屏停顿
+const PHASE_PAUSE   = 900
+// 遮罩整体淡出
+const PHASE_FADEOUT = 900
+
+// 逐字打出总时长
+const PHASE_TYPING  = TEXT.length * CHAR_INTERVAL
 
 export default function SplashScreen({ onDone }: Props) {
-  const [textPhase, setTextPhase] = useState<'in' | 'glow' | 'hold' | 'out'>('in')
+  const [visibleCount, setVisibleCount] = useState(0)
+  const [lineWidth, setLineWidth] = useState(0)
+  const [textPhase, setTextPhase] = useState<'typing' | 'hold' | 'out'>('typing')
   const [screenOpacity, setScreenOpacity] = useState(1)
   const doneRef = useRef(false)
 
   useEffect(() => {
-    // t1: 淡入结束 → 发光
-    const t1 = setTimeout(() => setTextPhase('glow'), PHASE_FADEIN)
-    // t2: 发光结束 → 停留
-    const t2 = setTimeout(() => setTextPhase('hold'), PHASE_FADEIN + PHASE_GLOW)
-    // t3: 停留结束 → 文字淡出（遮罩仍不透明）
-    const t3 = setTimeout(() => setTextPhase('out'), PHASE_FADEIN + PHASE_GLOW + PHASE_HOLD)
-    // t4: 文字消失 + 黑屏停顿结束 → 遮罩开始淡出
-    const t4 = setTimeout(() => setScreenOpacity(0),
-      PHASE_FADEIN + PHASE_GLOW + PHASE_HOLD + PHASE_TEXTOUT + PHASE_PAUSE)
-    // t5: 遮罩淡出结束 → 卸载组件
-    const t5 = setTimeout(() => {
-      if (!doneRef.current) { doneRef.current = true; onDone() }
-    }, PHASE_FADEIN + PHASE_GLOW + PHASE_HOLD + PHASE_TEXTOUT + PHASE_PAUSE + PHASE_FADEOUT)
+    const timers: ReturnType<typeof setTimeout>[] = []
 
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); clearTimeout(t5) }
+    // 第一个字延迟 1 秒，逐字显示，遇到逗号后累加 500ms 延迟
+    const FIRST_CHAR_DELAY = 1000
+    let accumulatedDelay = FIRST_CHAR_DELAY
+
+    for (let i = 0; i < TEXT.length; i++) {
+      const baseDelay = i * CHAR_INTERVAL + accumulatedDelay
+      timers.push(setTimeout(() => setVisibleCount(i + 1), baseDelay))
+
+      // 如果当前字是逗号，后续字符延迟 500ms
+      if (TEXT[i] === '，') {
+        accumulatedDelay += 500
+      }
+    }
+
+    // 细线在第一个字出现时开始延展，匀速延展到最后一个字
+    const totalTypingTime = (TEXT.length - 1) * CHAR_INTERVAL + accumulatedDelay
+    timers.push(setTimeout(() => setLineWidth(100), FIRST_CHAR_DELAY))
+
+    // 全部显示完 → 停留
+    timers.push(setTimeout(() => setTextPhase('hold'), totalTypingTime))
+
+    // 停留结束 → 文字淡出
+    timers.push(setTimeout(() => setTextPhase('out'), totalTypingTime + PHASE_HOLD))
+
+    // 文字淡出 + 黑屏停顿结束 → 遮罩淡出
+    timers.push(setTimeout(() => setScreenOpacity(0),
+      totalTypingTime + PHASE_HOLD + PHASE_TEXTOUT + PHASE_PAUSE))
+
+    // 遮罩淡出结束 → 卸载
+    timers.push(setTimeout(() => {
+      if (!doneRef.current) { doneRef.current = true; onDone() }
+    }, totalTypingTime + PHASE_HOLD + PHASE_TEXTOUT + PHASE_PAUSE + PHASE_FADEOUT))
+
+    return () => timers.forEach(clearTimeout)
   }, [onDone])
 
-  const textStyle: React.CSSProperties = {
-    position: 'relative',
-    zIndex: 2,
-    // 艺术感衬线字体：优先 Google Fonts Cormorant / Garamond 系
-    fontFamily: '"Cormorant Garamond", "Playfair Display", Georgia, serif',
-    fontSize: 'clamp(32px, 5.5vw, 64px)',
-    fontWeight: 700,
-    fontStyle: 'italic',
-    letterSpacing: '0.08em',
-    color: '#e8f0ff',
-    userSelect: 'none',
-    // 纯淡入，ease 和缓，不做位移
-    transition: textPhase === 'in'
-      ? `opacity ${PHASE_FADEIN}ms ease`
-      : textPhase === 'out'
-      ? `opacity ${PHASE_TEXTOUT}ms ease`
-      : 'opacity 600ms ease',
-    opacity: textPhase === 'in' ? 0 : textPhase === 'out' ? 0 : 1,
-    textShadow: textPhase === 'glow' || textPhase === 'hold'
-      ? '0 0 30px rgba(140,190,255,0.85), 0 0 70px rgba(90,150,255,0.45), 0 0 140px rgba(60,110,255,0.2)'
-      : '0 0 10px rgba(140,190,255,0.25)',
-  }
-
-  const lineStyle: React.CSSProperties = {
-    position: 'relative',
-    zIndex: 2,
-    marginTop: 20,
-    width: textPhase === 'in' ? '0%' : '100%',
-    height: 1,
-    background: 'linear-gradient(90deg, transparent, rgba(140,190,255,0.55), transparent)',
-    transition: textPhase === 'in'
-      ? `width ${PHASE_FADEIN * 0.7}ms ${PHASE_FADEIN * 0.3}ms ease`
-      : textPhase === 'out'
-      ? `opacity ${PHASE_TEXTOUT}ms ease`
-      : 'none',
-    opacity: textPhase === 'out' ? 0 : 1,
-  }
+  const isOut = textPhase === 'out'
+  const isHold = textPhase === 'hold'
 
   return (
     <div
@@ -91,8 +87,59 @@ export default function SplashScreen({ onDone }: Props) {
       }}
     >
       <StarField />
-      <div style={textStyle}>Welcome，My Friend</div>
-      <div style={lineStyle} />
+
+      {/* 文字容器 */}
+      <div
+        style={{
+          position: 'relative',
+          zIndex: 2,
+          display: 'inline-block',
+          fontFamily: '"Cormorant Garamond", "Playfair Display", "Noto Serif SC", Georgia, serif',
+          fontSize: 'clamp(20px, 3.2vw, 42px)',
+          fontWeight: 700,
+          fontStyle: 'italic',
+          letterSpacing: '0.12em',
+          color: '#e8f0ff',
+          userSelect: 'none',
+          opacity: isOut ? 0 : 1,
+          transition: isOut ? `opacity ${PHASE_TEXTOUT}ms ease` : 'none',
+          textShadow: isHold
+            ? '0 0 30px rgba(140,190,255,0.85), 0 0 70px rgba(90,150,255,0.45), 0 0 140px rgba(60,110,255,0.2)'
+            : '0 0 10px rgba(140,190,255,0.25)',
+          transitionProperty: isOut ? 'opacity' : 'text-shadow',
+          transitionDuration: isOut ? `${PHASE_TEXTOUT}ms` : '600ms',
+          transitionTimingFunction: 'ease',
+        }}
+      >
+        {TEXT.split('').map((char, i) => (
+          <span
+            key={i}
+            style={{
+              display: 'inline-block',
+              opacity: i < visibleCount ? 1 : 0,
+              transform: i < visibleCount ? 'translateY(0)' : 'translateY(8px)',
+              transition: 'opacity 200ms ease, transform 200ms ease',
+            }}
+          >
+            {char}
+          </span>
+        ))}
+
+        {/* 下方细线装饰：从文字左侧开始延展 */}
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: '100%',
+            marginTop: 20,
+            width: `${lineWidth}%`,
+            height: 1,
+            background: 'linear-gradient(90deg, rgba(140,190,255,0.8), rgba(140,190,255,0.3))',
+            transition: 'width 4000ms linear',
+          }}
+        />
+      </div>
     </div>
   )
 }
+
