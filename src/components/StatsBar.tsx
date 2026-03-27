@@ -36,9 +36,7 @@ function calcDepthStats(list: { visitDepth: string }[]) {
 export function LangSelector() {
   const { lang, setLang } = useLang()
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
+    <div
       style={{
         pointerEvents: 'auto',
         background: 'rgba(15, 23, 42, 0.85)',
@@ -69,7 +67,7 @@ export function LangSelector() {
           <svg width="8" height="5" viewBox="0 0 10 6"><path d="M0 0l5 6 5-6z" fill="#475569"/></svg>
         </div>
       </div>
-    </motion.div>
+    </div>
   )
 }
 
@@ -89,9 +87,7 @@ export default function StatsBar(props: Props) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'auto' }}>
           {/* 返回按钮，占据语种选择器的位置 */}
-          <motion.button
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
+          <button
             onClick={onBack}
             className="back-btn"
             style={{
@@ -111,11 +107,9 @@ export default function StatsBar(props: Props) {
               <path d="M19 12H5M11 6l-6 6 6 6"/>
             </svg>
             返回
-          </motion.button>
+          </button>
 
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
+          <div
             style={{
               background: 'rgba(15, 23, 42, 0.85)',
               backdropFilter: 'blur(12px)',
@@ -154,7 +148,7 @@ export default function StatsBar(props: Props) {
                 )}
               </AnimatePresence>
             </div>
-          </motion.div>
+          </div>
         </div>
       </div>
     )
@@ -173,9 +167,7 @@ export default function StatsBar(props: Props) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'auto' }}>
         <LangSelector />
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
+        <div
           style={{
             background: 'rgba(15, 23, 42, 0.85)',
             backdropFilter: 'blur(12px)',
@@ -221,7 +213,7 @@ export default function StatsBar(props: Props) {
           <GlowButton onClick={onShareClick}>
             {t.share}
           </GlowButton>
-        </motion.div>
+        </div>
       </div>
     </div>
   )

@@ -213,6 +213,9 @@ function AppInner() {
       {/* 穿越动效：双击国家时播放，onDone 后卸载 */}
       {warping && <WarpEffect onDone={handleWarpDone} />}
 
+      {/* ── SplashScreen ────────────────────────────────────────────────────────
+          进入欢迎屏，zIndex:100 覆盖地图。onDone 后从 DOM 卸载。
+          WorldMap 在后台始终挂载并初始化，SplashScreen 消失后立即可用。 */}
       {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
 
       <Toast message={toast} onDone={() => setToast(null)} />

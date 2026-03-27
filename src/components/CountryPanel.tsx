@@ -6,7 +6,7 @@ import { useLang } from '../i18n/LangContext'
 import GlowButton from './GlowButton'
 
 interface Props {
-  place: VisitedPlace | null
+  place: VisitedPlace   // App.tsx 确保只在 selectedPlace 非 null 时渲染
   isVisited: boolean
   onSave: (place: VisitedPlace) => void
   onRemove: (id: string) => void
@@ -16,10 +16,8 @@ interface Props {
 
 export default function CountryPanel({ place, isVisited, onSave, onRemove, onClose, onEnter }: Props) {
   const { t } = useLang()
-  const [selectedDepth, setSelectedDepth] = useState(place?.visitDepth ?? 'short')
-  const [note, setNote] = useState(place?.note ?? '')
-
-  if (!place) return null
+  const [selectedDepth, setSelectedDepth] = useState(place.visitDepth)
+  const [note, setNote] = useState(place.note ?? '')
 
   const depthLabels = { passed: t.passed, short: t.shortStay, long: t.longStay }
 

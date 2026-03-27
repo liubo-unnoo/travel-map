@@ -8,6 +8,16 @@ import { useLang } from '../i18n/LangContext'
 import GlowButton from './GlowButton'
 import StarField from './StarField'
 import { renderDotPattern, renderHiDotPattern, renderFlowPattern } from '../utils/mapPatterns'
+
+// 进入中国省份视图时，台湾在 Natural Earth 数据中 adm0_a3 为 'TWN'，
+// 需要将其合并显示在中国地图内。
+const CHINA_MERGE_CODES = new Set(['TWN'])
+
+/** 返回该国家在 GeoJSON 中实际使用的所有 adm0_a3 代码集合 */
+function getAdm0Codes(countryCode: string): string[] {
+  if (countryCode === 'CHN') return ['CHN', ...CHINA_MERGE_CODES]
+  return [countryCode]
+}
 import { getProvinceData } from '../utils/prefetch'
 
 const GLOW_DIM = '#0099bb'
@@ -100,14 +110,16 @@ export default function ProvinceMap({ countryCode, visitedProvinces, onSaveProvi
     const codes = Object.keys(visitedRef.current)
       .filter(id => id.startsWith(countryCode + '_'))
       .map(id => id.replace(countryCode + '_', ''))
+    const adm0Codes = getAdm0Codes(countryCode)
+    // 匹配本国所有 adm0_a3（中国包含 TWN），且 iso_3166_2 在已访问列表中
+    const adm0Filter = adm0Codes.length === 1
+      ? ['==', ['get', 'adm0_a3'], adm0Codes[0]]
+      : ['in', ['get', 'adm0_a3'], ['literal', adm0Codes]]
     if (codes.length === 0) {
-      return ['all',
-        ['==', ['get', 'adm0_a3'], countryCode],
-        ['==', ['get', 'iso_3166_2'], ''],
-      ] as unknown as maplibregl.ExpressionSpecification
+      return ['all', adm0Filter, ['==', ['get', 'iso_3166_2'], '']] as unknown as maplibregl.ExpressionSpecification
     }
     return ['all',
-      ['==', ['get', 'adm0_a3'], countryCode],
+      adm0Filter,
       ['in', ['get', 'iso_3166_2'], ['literal', codes]],
     ] as unknown as maplibregl.ExpressionSpecification
   }, [countryCode])
@@ -132,9 +144,10 @@ export default function ProvinceMap({ countryCode, visitedProvinces, onSaveProvi
       .then((geojson: GeoJSON.FeatureCollection) => {
         if (cancelled || !containerRef.current) return
 
-        // Filter features for this country
+        // 过滤本国所有省份（中国同时包含台湾的 adm0_a3=TWN 记录）
+        const adm0Codes = getAdm0Codes(countryCode)
         const countryFeatures = geojson.features.filter(
-          f => f.properties?.adm0_a3 === countryCode
+          f => adm0Codes.includes(f.properties?.adm0_a3)
         )
 
         const countryGeoJSON: GeoJSON.FeatureCollection = {
@@ -206,7 +219,8 @@ export default function ProvinceMap({ countryCode, visitedProvinces, onSaveProvi
           // Use pre-filtered data directly — no need for querySourceFeatures
           map.addSource('provinces', { type: 'geojson', data: countryGeoJSON, generateId: true })
 
-          const countryFilter = ['==', ['get', 'adm0_a3'], countryCode] as unknown as maplibregl.ExpressionSpecification
+          // source 内已只含本国数据（含合并省份），countryFilter 直接放行全部
+          const countryFilter = ['!=', ['get', 'adm0_a3'], ''] as unknown as maplibregl.ExpressionSpecification
           const visitedFilter = buildVisitedFilter()
 
           map.addLayer({ id: 'provinces-unvisited-fill', type: 'fill', source: 'provinces', filter: countryFilter,
