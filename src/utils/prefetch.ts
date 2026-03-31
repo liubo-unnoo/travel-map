@@ -2,7 +2,8 @@
 // 在地球视图加载后尽早调用 prefetchProvinceData()，
 // ProvinceMap 初始化时通过 getProvinceData() 直接取缓存，避免重复请求。
 
-const PROVINCE_SOURCE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson'
+// GeoJSON 托管在 public/ 目录，由 Cloudflare CDN 提供服务，避免 raw.githubusercontent.com 在国内被墙
+const PROVINCE_SOURCE = '/ne_10m_admin_1_states_provinces.geojson'
 
 let cache: Promise<GeoJSON.FeatureCollection> | null = null
 

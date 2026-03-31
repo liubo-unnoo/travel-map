@@ -147,7 +147,8 @@ export default function WorldMap({ mapState, onCountryClick, onCountryDblClick, 
 
       map.addSource('countries', {
         type: 'geojson',
-        data: 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson',
+        // GeoJSON 托管在 public/ 目录，由 Cloudflare CDN 提供服务，避免 raw.githubusercontent.com 在国内被墙
+        data: '/ne_50m_admin_0_countries.geojson',
         generateId: true,
       })
 
